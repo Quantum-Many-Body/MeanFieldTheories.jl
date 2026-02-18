@@ -139,7 +139,7 @@ Defines all degrees of freedom in the system, with optional constraints, custom 
 # Fields
 - `dofs::Vector{Dof}`: List of degrees of freedom
 - `valid_states::Vector{Q}`: All valid quantum number combinations (sorted)
-- `blocks::Union{Nothing, Vector{UnitRange{Int}}}`: Index ranges for symmetry blocks (if any)
+- `blocks::Vector{UnitRange{Int}}`: Index ranges for symmetry blocks (single block [1:N] if no blocking)
 - `qn_to_idx::Dict{Q, Int}`: Fast O(1) lookup from quantum numbers to linear indices
 
 # Constructor
@@ -166,7 +166,7 @@ SystemDofs(dofs::Vector{Dof}; constraint=nothing, sortrule=collect(length(dofs):
 
 # Examples
 ```julia
-# Example 1: Default ordering (reverse, no blocks)
+# Example 1: Default ordering (reverse, no explicit blocks)
 dofs = SystemDofs([
     Dof(:site, 3),
     Dof(:spin, 2)
@@ -174,7 +174,7 @@ dofs = SystemDofs([
 # sortrule = [2, 1]: spin slow, site fast
 # valid_states = [QN(site=1,spin=1), QN(site=2,spin=1), QN(site=3,spin=1),
 #                 QN(site=1,spin=2), QN(site=2,spin=2), QN(site=3,spin=2)]
-# blocks = nothing
+# blocks = [1:6]  (single block containing all states)
 
 # Example 2: With symmetry blocks (spin conservation)
 dofs = SystemDofs([
@@ -203,7 +203,7 @@ dofs = SystemDofs([
 struct SystemDofs{Q<:QuantumNumber}
     dofs::Vector{Dof}
     valid_states::Vector{Q}
-    blocks::Union{Nothing, Vector{UnitRange{Int}}}
+    blocks::Vector{UnitRange{Int}}  # Always defined: single block [1:N] if no actual blocking
     qn_to_idx::Dict{Q, Int}
 end
 
@@ -228,7 +228,10 @@ end
 
 # Helper: Generate blocks based on blocking DOFs
 function _generate_blocks(valid_states::Vector{Q}, dofs::Vector{Dof}, block_dofs::Vector{Vector{Int}}) where {Q<:QuantumNumber}
-    isempty(block_dofs) && return nothing
+    # If no blocking DOFs specified, return a single block containing all states
+    if isempty(block_dofs)
+        return [1:length(valid_states)]
+    end
 
     # Group states by the first level of blocking DOFs
     first_block_dofs = block_dofs[1]

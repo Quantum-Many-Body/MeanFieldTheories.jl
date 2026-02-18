@@ -39,7 +39,8 @@ include("quantumsystem/lattice.jl")
 include("quantumsystem/operators.jl")
 
 # Export ground state methods
-include("groundstate/hartreefock.jl")
+include("groundstate/hartreefock_real.jl")
+include("groundstate/hartreefock_momentum.jl")
 
 # Export core types
 export QuantumNumber, QN, Dof, SystemDofs
@@ -61,7 +62,7 @@ export generate_onebody, generate_twobody
 export build_onebody_matrix, build_interaction_tensor
 
 # Export Hartree-Fock functions
-export build_U_matrix
+export build_t_matrix, build_U_matrix, solve_hf
 
 # Export utility constants
 export PRECISION, rd

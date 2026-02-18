@@ -1,11 +1,65 @@
 """
-Tests for Hartree-Fock module (groundstate/hartreefock.jl)
+Tests for Hartree-Fock module (groundstate/hartreefock_real.jl)
 """
 
 using Test
 using LinearAlgebra
 using SparseArrays
 using SingleModeApproximation
+
+@testset "build_t_matrix" begin
+    # Setup a simple 2-site, 2-spin system
+    dofs = SystemDofs([Dof(:site, 2), Dof(:spin, 2)], sortrule = [[2], 1])
+    N = total_dim(dofs)  # Should be 4
+
+    # Create a 2D lattice for hopping
+    unitcell = Lattice([Dof(:site, 1)], [QN(site=1)], [[0.0, 0.0]])
+    lattice = Lattice(unitcell, [[1.0, 0.0], [0.0, 1.0]], (4, 1))
+    nn_bonds = bonds(lattice, (:p, :o), 1)
+
+    # Generate hopping operators: -t c†_i c_j
+    t_ops = generate_onebody(dofs, nn_bonds, -1.0)
+
+    @testset "Basic functionality" begin
+        t_matrix = build_t_matrix(dofs, t_ops)
+
+        @test size(t_matrix) == (N, N)
+        @test t_matrix isa SparseMatrixCSC
+        @test nnz(t_matrix) > 0
+        @test ishermitian(t_matrix)
+    end
+
+    @testset "Block optimization" begin
+        # Create dofs with explicit blocks (spin-conserved)
+        dofs_blocked = SystemDofs([Dof(:site, 2), Dof(:spin, 2)], sortrule = [[2], 1])
+        # Create dofs without explicit blocks (single block)
+        dofs_no_block = SystemDofs([Dof(:site, 2), Dof(:spin, 2)])
+
+        t_with_blocks = build_t_matrix(dofs_blocked, t_ops)
+        t_without_blocks = build_t_matrix(dofs_no_block, t_ops)
+
+        # With explicit blocks should have same or fewer non-zeros (t is block-diagonal)
+        @test nnz(t_with_blocks) <= nnz(t_without_blocks)
+
+        # Both should be Hermitian
+        @test ishermitian(t_with_blocks)
+        @test ishermitian(t_without_blocks)
+
+        # Both should produce same matrix (blocks is just optimization)
+        @test Matrix(t_with_blocks) ≈ Matrix(t_without_blocks)
+    end
+
+    @testset "Consistency with dense version" begin
+        t_sparse = build_t_matrix(dofs, t_ops)
+        t_dense = build_onebody_matrix(dofs, t_ops)
+
+        @test Matrix(t_sparse) ≈ t_dense
+    end
+
+    @testset "Error handling" begin
+        @test_throws ErrorException build_t_matrix(dofs, Operators[])
+    end
+end
 
 @testset "build_U_matrix" begin
     # Setup a simple 2-site, 2-spin system
@@ -25,7 +79,7 @@ using SingleModeApproximation
         order = (cdag, 1, c, 1, cdag, 1, c, 1))
 
     @testset "Basic functionality" begin
-        U_matrix = build_U_matrix(dofs, U_ops, dofs.blocks)
+        U_matrix = build_U_matrix(dofs, U_ops)
 
         @test size(U_matrix) == (N^2, N^2)
         @test U_matrix isa SparseMatrixCSC
@@ -34,10 +88,15 @@ using SingleModeApproximation
     end
 
     @testset "Block optimization" begin
-        U_with_blocks = build_U_matrix(dofs, U_ops, dofs.blocks)
-        U_without_blocks = build_U_matrix(dofs, U_ops, nothing)
+        # Create dofs with explicit blocks (spin-conserved)
+        dofs_blocked = SystemDofs([Dof(:site, 2), Dof(:spin, 2)], sortrule = [[2], 1])
+        # Create dofs without explicit blocks (single block)
+        dofs_no_block = SystemDofs([Dof(:site, 2), Dof(:spin, 2)])
 
-        # With blocks should have fewer or equal non-zeros
+        U_with_blocks = build_U_matrix(dofs_blocked, U_ops)
+        U_without_blocks = build_U_matrix(dofs_no_block, U_ops)
+
+        # With explicit blocks should have fewer or equal non-zeros
         @test nnz(U_with_blocks) <= nnz(U_without_blocks)
     end
 
@@ -51,7 +110,7 @@ using SingleModeApproximation
             U_ref[i,j,k,l] = V[i,j,k,l] + V[k,l,i,j] - V[k,j,i,l] - V[i,l,k,j]
         end
 
-        U_matrix = build_U_matrix(dofs, U_ops, nothing)
+        U_matrix = build_U_matrix(dofs, U_ops)
 
         @test Matrix(U_matrix) ≈ reshape(U_ref, N^2, N^2)
     end

@@ -90,7 +90,7 @@ eigenvalues = eigvals(Hermitian(H))
 ## Documentation Contents
 
 ```@contents
-Pages = ["quantumsystem.md", "hartreefock.md", "singlemode.md"]
+Pages = ["quantumsystem.md", "hartreefock_real.md", "hartreefock_momentum.md", "singlemode.md"]
 Depth = 2
 ```
 

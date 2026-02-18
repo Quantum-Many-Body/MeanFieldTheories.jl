@@ -1,6 +1,6 @@
-# Hartree-Fock Approximation
+# Real-Space Hartree-Fock
 
-This section introduces the Hartree-Fock (HF) approximation method for obtaining self-consistent mean-field solutions of quantum many-body systems.
+This section describes the Hartree-Fock (HF) approximation in real space, which is implemented in `src/groundstate/hartreefock_real.jl`.
 
 ## Physical Hamiltonian
 
@@ -152,11 +152,12 @@ The Hartree-Fock equations are solved iteratively:
    $$G \leftarrow (1-\alpha) G_{\text{old}} + \alpha G_{\text{new}}$$
 
 6. **Calculate physical quantities**:
-   - **Band energy**: $E_{\text{band}} = \sum_i H^{\text{eff}}_{ii} G_{ii}$ (zero T) or use grand potential (finite T)
+   - **Band energy** (T=0): $E_{\text{band}} = \sum_{n \in \text{occ}} \varepsilon_n$
+   - **Band energy** (T>0, grand potential): $E_{\text{band}} = \sum_b \left[\mu_b N_b - T \sum_n \ln(1 + e^{-(\varepsilon_n - \mu_b)/T})\right]$
    - **Interaction energy**: $E_{\text{int}} = -\frac{1}{2} G^T \cdot U \cdot G$
    - **Total energy**: $E_{\text{total}} = E_{\text{band}} + E_{\text{int}}$
-   - **Particle number**: $N = \sum_i G_{ii}$
-   - **Spin polarization**: $S_z = \frac{1}{2} \sum_i (G_{i\uparrow,i\uparrow} - G_{i\downarrow,i\downarrow})$
+   - **Particle number**: $N_{\text{cond}} = \sum_i G_{ii} = \mathrm{tr}(G)$
+   - **Spin polarization** (if spin DOF present): $S_z = \frac{1}{2} \sum_i (G_{i\uparrow,i\uparrow} - G_{i\downarrow,i\downarrow})$
 
 ## Implementation Notes
 
@@ -165,14 +166,14 @@ The Hartree-Fock equations are solved iteratively:
 **For efficient Hartree-Fock calculations, use `build_U_matrix` to directly construct the sparse U matrix from operators:**
 
 ```julia
-U_matrix = build_U_matrix(dofs, interaction_ops, blocks)
+U_matrix = build_U_matrix(dofs, interaction_ops)
 ```
 
 This approach:
 - **Skips the intermediate V tensor** (saves N⁴ memory, e.g., 1.3 TB for 30×30 system)
 - **Directly generates sparse matrix** representation
 - **Applies the 4-term formula** during construction
-- **Exploits block structure** when provided
+- **Exploits block structure** automatically via `dofs.blocks`
 
 For each interaction operator $V_{ijkl}$, the function contributes to **four U matrix elements**:
 
@@ -183,16 +184,11 @@ U[(k-1)*N+j, (i-1)*N+l] -= V[i,j,k,l]  # Fock term 3     (exchange)
 U[(i-1)*N+l, (k-1)*N+j] -= V[i,j,k,l]  # Fock term 4     (exchange)
 ```
 
-### Alternative: Two-Step Construction via V Tensor
-
-For debugging or small systems, you can use the two-step approach:
+Set `include_fock=false` to disable exchange terms (Hartree-only approximation):
 
 ```julia
-V = build_interaction_tensor(dofs, interaction_ops)  # Dense N×N×N×N tensor
-# Then manually apply 4-term formula to build U
+U_matrix = build_U_matrix(dofs, interaction_ops, include_fock=false)
 ```
-
-**Note**: This approach requires O(N⁴) memory and is **not recommended for large systems**.
 
 ### Symmetry and Blocking
 
@@ -205,7 +201,7 @@ When the system has conserved quantum numbers (e.g., spin $S_z$, particle number
 
 ### Block Structure and U Matrix Sparsification
 
-**Important**: The `blocks` parameter optimizes the U matrix construction by exploiting the block-diagonal structure of G, **not** by making U itself block-diagonal.
+**Important**: The block optimization reduces U matrix memory by exploiting the block-diagonal structure of G, **not** by making U itself block-diagonal.
 
 **Key insight**: If G is block-diagonal (e.g., spin-up and spin-down blocks), then $G_{kl} = 0$ when $k$ and $l$ are in different blocks. When computing:
 
@@ -217,37 +213,28 @@ any $U_{ijkl}$ term multiplied by $G_{kl} = 0$ contributes nothing. Therefore, w
 - 2 spin blocks: **75% reduction**
 - 4 blocks: **94% reduction**
 
-**Implementation**: `build_U_matrix(dofs, ops, blocks)` only stores $U_{(i,j),(k,l)}$ when $(k,l)$ are in the same block, creating a column-sparse (not block-diagonal) matrix optimized for multiplication with block-diagonal G.
-
 ## Example: Hubbard Model
 
 For the single-band Hubbard model:
 
 $$H = -t \sum_{\langle ij \rangle, \sigma} c^\dagger_{i\sigma} c_{j\sigma} + U \sum_i n_{i\uparrow} n_{i\downarrow}$$
 
-The on-site interaction $U n_{i\uparrow} n_{i\downarrow} = U c^\dagger_{i\uparrow} c_{i\uparrow} c^\dagger_{i\downarrow} c_{i\downarrow}$ is implemented as:
-
 ```julia
 # Setup system with spin blocking
 dofs = SystemDofs([Dof(:site, N), Dof(:spin, 2)], sortrule = [[2], 1])
-onsite = bonds(lattice, (:o, :o), 0)  # On-site bonds
+lattice = Lattice(:Square, Lx, Ly, pbc=true)
 
-# Generate Hubbard U operators
-U_ops = generate_twobody(dofs, onsite,
-    (delta, qn1, qn2, qn3, qn4) ->
-        (qn1.site == qn2.site == qn3.site == qn4.site) &&
-        (qn1.spin, qn2.spin, qn3.spin, qn4.spin) == (1, 1, 2, 2) ? U : 0.0,
-    order = (cdag, 1, c, 1, cdag, 1, c, 1)
-)
+# Generate hopping and Hubbard U operators
+ops = generate_onebody(dofs, bonds(lattice, 1), -t)
+ops = vcat(ops, generate_twobody(dofs, onsite_bonds, U_val))
 
-# Build U matrix directly (recommended for large systems)
-U_matrix = build_U_matrix(dofs, U_ops, dofs.blocks)
+# Solve HF with spin-up/spin-down block occupations
+result = solve_hf(dofs, ops, [N_up, N_dn], seed=42)
 
-# In SCF iteration:
-# H_eff = H_0 + reshape(U_matrix * vec(G), N, N)
+println("Total energy: ", result.energies.total)
+println("NCond: ", result.ncond)
+println("Sz: ", result.sz)
 ```
-
-The `build_U_matrix` function automatically applies the mean-field 4-term formula and exploits the spin block structure for efficiency.
 
 ## References
 

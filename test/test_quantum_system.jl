@@ -70,13 +70,13 @@ end
     @test total_dim(ss) == 6
 
     # Test blocking with nested sortrule
-    # No blocks
+    # No explicit blocks (single block containing all states)
     no_blocks = SystemDofs([Dof(:site, 3), Dof(:spin, 2)], sortrule = [2, 1])
-    @test no_blocks.blocks === nothing
+    @test length(no_blocks.blocks) == 1
+    @test no_blocks.blocks[1] == 1:6  # Single block with all 6 states
 
     # Single-level blocking by spin
     spin_blocked = SystemDofs([Dof(:site, 3), Dof(:spin, 2)], sortrule = [[2], 1])
-    @test spin_blocked.blocks !== nothing
     @test length(spin_blocked.blocks) == 2
     @test spin_blocked.blocks[1] == 1:3  # spin=1, all sites
     @test spin_blocked.blocks[2] == 4:6  # spin=2, all sites
@@ -87,7 +87,6 @@ end
         Dof(:spin, 2),
         Dof(:valley, 2)
     ], sortrule = [[3, 2], 1])
-    @test multi_blocked.blocks !== nothing
     @test length(multi_blocked.blocks) == 4
     @test multi_blocked.blocks[1] == 1:2   # valley=1, spin=1
     @test multi_blocked.blocks[2] == 3:4   # valley=1, spin=2
