@@ -154,7 +154,8 @@ automatically select the lowest-energy converged solution.
 - `temperature::Float64 = 0.0`: Temperature (0 for ground state)
 - `max_iter::Int = 1000`: Maximum SCF iterations per restart
 - `tol::Float64 = 1e-6`: Convergence tolerance for Green's function residual
-- `mix_alpha::Float64 = 0.5`: Mixing parameter (0 < α ≤ 1). Smaller (0.2–0.4) for strongly correlated systems.
+- `mix_alpha::Float64 = 0.5`: Linear mixing parameter (0 < α ≤ 1), used when DIIS history is insufficient or disabled.
+- `diis_m::Int = 8`: DIIS history window length. Stores the last `diis_m` iterates and solves a small linear system to extrapolate the optimal density matrix. Set to `0` to disable DIIS and use pure linear mixing.
 - `G_init = nothing`: Initial Green's function for the first restart
 - `ene_cutoff::Float64 = 100.0`: Energy cutoff for exp overflow at finite T
 - `n_restarts::Int = 1`: Number of random restarts; returns lowest-energy converged result
@@ -175,6 +176,7 @@ function solve_hf(
     max_iter::Int = 1000,
     tol::Float64 = 1e-6,
     mix_alpha::Float64 = 0.5,
+    diis_m::Int = 8,
     G_init = nothing,
     ene_cutoff::Float64 = 100.0,
     n_restarts::Int = 1,
@@ -218,7 +220,8 @@ function solve_hf(
 
     if verbose
         println(@sprintf("  System: N = %d, blocks = %d, particles = %s (total = %d)", N, length(blocks), string(block_occ), sum(block_occ)))
-        println(@sprintf("  T = %.4g,  α = %.2f,  tol = %.2g,  max_iter = %d", temperature, mix_alpha, tol, max_iter))
+        mixing_str = diis_m > 0 ? "DIIS(m=$diis_m)" : "linear(α=$(mix_alpha))"
+        println(@sprintf("  T = %.4g,  mixing = %s,  tol = %.2g,  max_iter = %d", temperature, mixing_str, tol, max_iter))
         n_restarts > 1 && println("  Restarts: $n_restarts")
         println("="^60)
     end
@@ -243,7 +246,7 @@ function solve_hf(
         end
 
         result = _run_scf(G, t_matrix, U_matrix, N, blocks, block_occ,
-                          temperature, max_iter, tol, mix_alpha, ene_cutoff,
+                          temperature, max_iter, tol, mix_alpha, diis_m, ene_cutoff,
                           n_restarts > 1 ? false : verbose, timings)
 
         if n_restarts > 1 && verbose
@@ -286,6 +289,34 @@ function solve_hf(
     return merge(best_result, (ncond=ncond, sz=sz))
 end
 
+# ──────────────── DIIS extrapolation ────────────────
+
+# DIIS (Pulay) extrapolation over the last m iterates.
+# G_hist: stored G_new from each recent iteration
+# R_hist: stored residuals R = G_new - G_old
+# Solves  [B -1; -1ᵀ 0][c; λ] = [0; -1]  s.t. Σcᵢ = 1  to minimise ‖Σcᵢ Rᵢ‖.
+# Falls back to the most-recent iterate when B is (near-)singular.
+function _diis_extrapolate(G_hist::Vector{Matrix{ComplexF64}},
+                           R_hist::Vector{Matrix{ComplexF64}})
+    m = length(G_hist)
+    B = zeros(Float64, m + 1, m + 1)
+    for i in 1:m, j in i:m
+        v = real(dot(vec(R_hist[i]), vec(R_hist[j])))
+        B[i, j] = v
+        B[j, i] = v
+    end
+    B[1:m, m+1] .= -1.0
+    B[m+1, 1:m] .= -1.0
+    rhs = zeros(Float64, m + 1)
+    rhs[m + 1] = -1.0
+    c = try
+        (B \ rhs)[1:m]
+    catch   # singular B — fall back to most-recent iterate
+        vcat(zeros(Float64, m - 1), 1.0)
+    end
+    return sum(c[i] .* G_hist[i] for i in 1:m)
+end
+
 # ──────────────── Internal SCF loop ────────────────
 
 # Internal: run one SCF loop from initial G; returns NamedTuple with all results.
@@ -300,6 +331,7 @@ function _run_scf(
     max_iter::Int,
     tol::Float64,
     mix_alpha::Float64,
+    diis_m::Int,
     ene_cutoff::Float64,
     verbose::Bool,
     timings::Dict{String, Tuple{Int64, Int}}
@@ -313,6 +345,8 @@ function _run_scf(
     eigenvalues  = [Vector{Float64}(undef, length(b)) for b in blocks]
     eigenvectors = [Matrix{ComplexF64}(undef, length(b), length(b)) for b in blocks]
     Nsite = N ÷ length(blocks)
+    G_hist = Vector{Matrix{ComplexF64}}()   # DIIS history
+    R_hist = Vector{Matrix{ComplexF64}}()
 
     for iter in 1:max_iter
         iteration = iter
@@ -350,7 +384,18 @@ function _run_scf(
             break
         end
 
-        @. G = (1 - mix_alpha) * G_old + mix_alpha * G_new
+        if diis_m > 0
+            push!(G_hist, copy(G_new))
+            push!(R_hist, G_new - G_old)
+            if length(G_hist) > diis_m
+                popfirst!(G_hist)
+                popfirst!(R_hist)
+            end
+            G = length(G_hist) >= 2 ? _diis_extrapolate(G_hist, R_hist) :
+                                      (1 - mix_alpha) .* G_old .+ mix_alpha .* G_new
+        else
+            @. G = (1 - mix_alpha) * G_old + mix_alpha * G_new
+        end
 
         t0 = Int64(time_ns())
         current_energies = calculate_energies(G, U_matrix, eigenvalues, block_occ,
