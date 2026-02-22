@@ -100,7 +100,11 @@ For a ground state with discrete translational symmetry, the single-particle Gre
 
 $$\langle c^\dagger_{\mathbf{k},a} c_{\mathbf{k}',b}\rangle = G_{ab}(\mathbf{k})\,\delta_{\mathbf{k},\mathbf{k}'}$$
 
-States at different momenta are uncorrelated, a direct consequence of the commutation of the translation operator with the Hamiltonian. Substituting into each contraction:
+States at different momenta are uncorrelated, a direct consequence of the commutation of the translation operator with the Hamiltonian.
+
+**Important note on symmetry breaking**: Although the Hamiltonian has translational symmetry, the HF ground state may spontaneously break this symmetry (e.g., antiferromagnetic order, charge density waves). In such cases, one must redefine the **unit cell** to the enlarged magnetic/modulated cell that restores periodicity. From this point forward, $\mathbf{k}$ refers to momenta in the reciprocal lattice of this (possibly enlarged) cell, and indices $a,b,c,d$ label all internal degrees of freedom within the chosen cell (dimension $d \to nd$ for an $n$-fold enlargement, with correspondingly fewer $\mathbf{k}$ points).
+
+Substituting into each contraction:
 
 $$\mathcal{G}_1 = G_{ab}(\mathbf{k}_2)\,\delta_{\mathbf{q},\mathbf{0}}, \qquad \mathcal{G}_2 = G_{cd}(\mathbf{k}_4)\,\delta_{\mathbf{q},\mathbf{0}}$$
 
