@@ -183,7 +183,7 @@ end
 #==================== General Term Generators ====================#
 
 """
-    generate_onebody(dofs, bonds, value; order=(cdag, 1, c, 2)) -> Vector{Operators}
+    generate_onebody(dofs, bonds, value; order=(cdag, 1, c, 2), hc=true)
 
 Generate one-body terms from bonds.
 
@@ -192,24 +192,36 @@ Generate one-body terms from bonds.
 - `bonds::Vector{Bond}`: Two-site bonds from bonds() function
 - `value`: Coefficient, either:
   - `Number`: constant value for all internal DOF combinations
-  - `Function(delta, qn1, qn2) -> Number`: custom function used to constrain degrees of freedom.
+  - `Function(delta, qn1, qn2) -> Number`: custom function to constrain DOFs.
 
 # Keyword Arguments
 - `order::Tuple`: Format `(op_type1, site1, op_type2, site2)`
   - Default: `(cdag, 1, c, 2)` for standard hopping c†[site1] c[site2]
-- `hc::Bool`: if add the H.C. parts in the terms
+- `hc::Bool`: whether to include the Hermitian conjugate terms
+
+# Returns
+`NamedTuple` with three parallel `Vector` fields:
+- `.ops::Vector{Operators}`: operator terms
+- `.delta::Vector{Vector{Float64}}`: physical displacement for each term
+  (`bond.coordinates[2] - bond.coordinates[1]`, unwrapped)
+- `.irvec::Vector{Vector{Float64}}`: unit-cell displacement for each term
+  (`bond.icoordinates[2] - bond.icoordinates[1]`); zero for intra-cell bonds,
+  non-zero for bonds crossing a periodic boundary
+
+For H.c. terms the sign of both `delta` and `irvec` is flipped.
 
 # NOTICE
-  - All internal degrees of freedom are counted in a mixed manner if one does not constrain degrees of freedom!!!
+  - All internal DOFs are mixed unless constrained via the `value` function.
 
 # Examples
 ```julia
-# Standard hopping: -t c†_i c_j 
-ops = generate_onebody(dofs, nn_bonds, -1.0)
+result = generate_onebody(dofs, nn_bonds, -1.0)
+result.ops    # Vector{Operators}
+result.delta  # physical displacements
+result.irvec  # unit-cell displacements (use this for momentum-space HF)
 
-# Spin-conserving hopping
-ops = generate_onebody(dofs, nn_bonds, (delta, qn1, qn2) ->
-    qn1.spin == qn2.spin ? -1.0 : 0.0)
+# Access operators only (compatible with real-space HF)
+ops = generate_onebody(dofs, nn_bonds, -1.0).ops
 ```
 """
 function generate_onebody(
@@ -223,13 +235,16 @@ function generate_onebody(
     op_type1, site1, op_type2, site2 = order
     @assert site1 in (1, 2) && site2 in (1, 2) "site indices must be 1 or 2"
 
-    result = Operators[]
+    ops_list   = Operators[]
+    delta_list = Vector{Float64}[]
+    irvec_list = Vector{Float64}[]
 
     for bond in bonds
         @assert length(bond.states) == 2 "One-body generator requires 2-site bonds"
 
-        s1, s2 = bond.states
-        delta = rd(bond.coordinates[2] .- bond.coordinates[1])
+        s1, s2   = bond.states
+        delta    = rd(bond.coordinates[2]  .- bond.coordinates[1])
+        irvec    = rd(bond.icoordinates[2] .- bond.icoordinates[1])
         pos_keys = keys(s1)
 
         qn_at_site1 = [qn for qn in dofs.valid_states if all(qn[k] == s1[k] for k in pos_keys)]
@@ -241,15 +256,19 @@ function generate_onebody(
         for qn1 in qn_list1, qn2 in qn_list2
             v = value isa Number ? value : value(delta, qn1, qn2)
             if !iszero(v)
-                push!(result, Operators(v, [op_type1(qn1), op_type2(qn2)]))
+                push!(ops_list,   Operators(v, [op_type1(qn1), op_type2(qn2)]))
+                push!(delta_list, delta)
+                push!(irvec_list, irvec)
                 if hc
-                    push!(result, Operators(conj(v), [op_type1(qn2), op_type2(qn1)]))
+                    push!(ops_list,   Operators(conj(v), [op_type1(qn2), op_type2(qn1)]))
+                    push!(delta_list, rd(-delta))
+                    push!(irvec_list, rd(-irvec))
                 end
             end
         end
     end
 
-    return result
+    return (ops=ops_list, delta=delta_list, irvec=irvec_list)
 end
 
 """

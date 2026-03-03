@@ -25,7 +25,7 @@ lattice = Lattice(:Square, 2, 2, pbc=true)
 
 # Generate hopping terms
 bonds = bonds(lattice, 1)
-hopping = generate_onebody(dofs, bonds, -1.0)
+hopping = generate_onebody(dofs, bonds, -1.0).ops
 
 # Build Hamiltonian
 H = build_onebody_matrix(dofs, hopping)
@@ -62,7 +62,8 @@ export generate_onebody, generate_twobody
 export build_onebody_matrix, build_interaction_tensor
 
 # Export Hartree-Fock functions
-export build_t_matrix, build_U_matrix, solve_hf
+export build_t_matrix, build_U_matrix, solve_hf#hartreefock_real
+export build_tk
 
 # Export utility constants
 export PRECISION, rd

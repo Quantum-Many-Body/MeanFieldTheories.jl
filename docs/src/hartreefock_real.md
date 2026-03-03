@@ -225,7 +225,7 @@ dofs = SystemDofs([Dof(:site, N), Dof(:spin, 2)], sortrule = [[2], 1])
 lattice = Lattice(:Square, Lx, Ly, pbc=true)
 
 # Generate hopping and Hubbard U operators
-ops = generate_onebody(dofs, bonds(lattice, 1), -t)
+ops = generate_onebody(dofs, bonds(lattice, 1), -t).ops
 ops = vcat(ops, generate_twobody(dofs, onsite_bonds, U_val))
 
 # Solve HF with spin-up/spin-down block occupations

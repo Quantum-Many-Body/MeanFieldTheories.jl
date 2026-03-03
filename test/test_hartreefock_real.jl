@@ -18,7 +18,7 @@ using SingleModeApproximation
     nn_bonds = bonds(lattice, (:p, :o), 1)
 
     # Generate hopping operators: -t c†_i c_j
-    t_ops = generate_onebody(dofs, nn_bonds, -1.0)
+    t_ops = generate_onebody(dofs, nn_bonds, -1.0).ops
 
     @testset "Basic functionality" begin
         t_matrix = build_t_matrix(dofs, t_ops)
@@ -158,7 +158,7 @@ end
 
     t_ops = generate_onebody(dofs, nn_bonds,
         (delta, qn1, qn2) -> qn1.spin == qn2.spin ? t_hopping : 0.0,
-        hc = true)
+        hc = true).ops
 
     U_ops = generate_twobody(dofs, onsite_bonds,
         (delta, qn1, qn2, qn3, qn4) ->

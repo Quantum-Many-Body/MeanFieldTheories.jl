@@ -206,6 +206,9 @@ function solve_hf(
         flush(stdout)
     end
 
+    # Use Float64 for real Hamiltonians, ComplexF64 for complex ones.
+    GT = (eltype(t_matrix) <: Real && eltype(U_matrix) <: Real) ? Float64 : ComplexF64
+
     @assert ishermitian(t_matrix) "t_matrix must be Hermitian"
     @assert 0 < mix_alpha <= 1   "mix_alpha must be in (0, 1]"
     @assert temperature >= 0     "temperature must be non-negative"
@@ -237,8 +240,8 @@ function solve_hf(
         end
 
         t0 = Int64(time_ns())
-        G = G_init !== nothing && restart == 1 ? initialize_green(N, blocks, G_init=G_init) :
-                                                 initialize_green(N, blocks, rng=rng)
+        G = G_init !== nothing && restart == 1 ? initialize_green(N, blocks, G_init=G_init, T=GT) :
+                                                 initialize_green(N, blocks, rng=rng, T=GT)
         _accum!(timings, "initialize_green", Int64(time_ns()) - t0)
         if n_restarts == 1 && verbose
             println(_now_str() * @sprintf(" G initialized  %s", _fmt_ns(timings["initialize_green"][1])))
@@ -296,8 +299,8 @@ end
 # R_hist: stored residuals R = G_new - G_old
 # Solves  [B -1; -1ᵀ 0][c; λ] = [0; -1]  s.t. Σcᵢ = 1  to minimise ‖Σcᵢ Rᵢ‖.
 # Falls back to the most-recent iterate when B is (near-)singular.
-function _diis_extrapolate(G_hist::Vector{Matrix{ComplexF64}},
-                           R_hist::Vector{Matrix{ComplexF64}})
+function _diis_extrapolate(G_hist::Vector{Matrix{T}},
+                           R_hist::Vector{Matrix{T}}) where T
     m = length(G_hist)
     B = zeros(Float64, m + 1, m + 1)
     for i in 1:m, j in i:m
@@ -320,8 +323,9 @@ end
 # ──────────────── Internal SCF loop ────────────────
 
 # Internal: run one SCF loop from initial G; returns NamedTuple with all results.
+# T is the element type of G (Float64 for real systems, ComplexF64 for complex).
 function _run_scf(
-    G::Matrix{ComplexF64},
+    G::Matrix{T},
     t_matrix::AbstractMatrix,
     U_matrix::AbstractMatrix,
     N::Int,
@@ -335,7 +339,7 @@ function _run_scf(
     ene_cutoff::Float64,
     verbose::Bool,
     timings::Dict{String, Tuple{Int64, Int}}
-)
+) where T
     G = copy(G)
     G_old = copy(G)
     converged = false
@@ -343,10 +347,10 @@ function _run_scf(
     residual = Inf
     mu_list = zeros(Float64, length(blocks))
     eigenvalues  = [Vector{Float64}(undef, length(b)) for b in blocks]
-    eigenvectors = [Matrix{ComplexF64}(undef, length(b), length(b)) for b in blocks]
+    eigenvectors = [Matrix{T}(undef, length(b), length(b)) for b in blocks]
     Nsite = N ÷ length(blocks)
-    G_hist = Vector{Matrix{ComplexF64}}()   # DIIS history
-    R_hist = Vector{Matrix{ComplexF64}}()
+    G_hist = Vector{Matrix{T}}()   # DIIS history
+    R_hist = Vector{Matrix{T}}()
 
     for iter in 1:max_iter
         iteration = iter
@@ -436,26 +440,28 @@ function _calculate_sz(G::AbstractMatrix, dofs::SystemDofs)
 end
 
 """
-    initialize_green(N, blocks; G_init=nothing, rng=Random.default_rng())
+    initialize_green(N, blocks; G_init=nothing, rng=Random.default_rng(), T=Float64)
 
-Initialize Green's function (N×N). If `G_init` is provided, validates and returns it.
+Initialize Green's function (N×N) with element type `T`.
+If `G_init` is provided, validates and converts it to `Matrix{T}`.
 Otherwise, fills each block with small random numbers in `[-0.005, 0.005]` and symmetrizes.
 """
 function initialize_green(
     N::Int,
     blocks::Vector{UnitRange{Int}};
     G_init=nothing,
-    rng::AbstractRNG=Random.default_rng()
+    rng::AbstractRNG=Random.default_rng(),
+    T::Type=Float64
 )
     if G_init !== nothing
         @assert size(G_init) == (N, N) "G_init must be N×N"
         @assert ishermitian(G_init)    "G_init must be Hermitian"
-        return Matrix{ComplexF64}(G_init)
+        return Matrix{T}(G_init)
     end
-    G = zeros(ComplexF64, N, N)
+    G = zeros(T, N, N)
     rand_mat = rand(rng, Float64, N, N)
     for block in blocks, i in block, j in block
-        G[i,j] = 0.01 * (rand_mat[i,j] - 0.5)
+        G[i,j] = T(0.01 * (rand_mat[i,j] - 0.5))
     end
     return (G + G') / 2
 end
@@ -470,7 +476,7 @@ function diagonalize_blocks!(
     h_eff::AbstractMatrix,
     blocks::Vector{UnitRange{Int}},
     eigenvalues::Vector{Vector{Float64}},
-    eigenvectors::Vector{Matrix{ComplexF64}}
+    eigenvectors::Vector{<:AbstractMatrix}
 )
     for (i, block) in enumerate(blocks)
         eig = eigen(Hermitian(h_eff[block, block]))
@@ -517,19 +523,20 @@ the block-diagonal structure imposed by symmetry.
 - `ene_cutoff`: Cutoff to prevent exp overflow: if (ε-μ)/T > cutoff, f = 0
 
 # Returns
-`Matrix{ComplexF64}` of size (N×N), Hermitian and block-diagonal.
+`Matrix{T}` of size (N×N), Hermitian and block-diagonal, where T matches the
+element type of `eigenvectors` (Float64 for real systems, ComplexF64 for complex).
 """
 function update_green(
-    eigenvectors::Vector{Matrix{ComplexF64}},
+    eigenvectors::Vector{<:AbstractMatrix{T}},
     blocks::Vector{UnitRange{Int}},
     block_occ::Vector{Int};
     eigenvalues::Union{Nothing,Vector{Vector{Float64}}} = nothing,
     mu_list::Union{Nothing,Vector{Float64}} = nothing,
     temperature::Float64 = 0.0,
     ene_cutoff::Float64 = 100.0
-)
+) where T
     N = sum(length(b) for b in blocks)
-    G = zeros(ComplexF64, N, N)
+    G = zeros(T, N, N)
     if temperature == 0.0
         # T=0: f_n = θ(n_occ - n), i.e. occupy the lowest n_occ eigenstates
         for (idx, n_occ) in enumerate(block_occ)
@@ -598,7 +605,7 @@ deeply unoccupied states at low T).
 """
 function find_chemical_potentials(
     eigenvalues::Vector{Vector{Float64}},
-    eigenvectors::Vector{Matrix{ComplexF64}},
+    eigenvectors::Vector{<:AbstractMatrix},
     blocks::Vector{UnitRange{Int}},
     block_occ::Vector{Int},
     temperature::Float64;

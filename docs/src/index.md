@@ -77,7 +77,7 @@ lattice = Lattice(:Square, 2, 2, pbc=true)
 
 # Generate nearest-neighbor hopping
 bonds_nn = bonds(lattice, 1)
-hopping = generate_onebody(dofs, bonds_nn, -1.0)
+hopping = generate_onebody(dofs, bonds_nn, -1.0).ops
 
 # Build Hamiltonian matrix
 H = build_onebody_matrix(dofs, hopping)

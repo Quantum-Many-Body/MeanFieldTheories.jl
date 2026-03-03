@@ -283,7 +283,7 @@ end
     nn_bonds = bonds(lattice, (:p, :p), 1)
 
     # Test 1: Constant hopping (all spin combinations)
-    ops = generate_onebody(dofs, nn_bonds, -1.0)
+    ops = generate_onebody(dofs, nn_bonds, -1.0).ops
     @test length(ops) > 0
     # Each bond generates 4 terms (2 spins × 2 spins) and their H.C. terms.
     @test length(ops) == length(nn_bonds) * 4 * 2
@@ -293,7 +293,7 @@ end
 
     # Test 2: Spin-diagonal hopping
     ops_diag = generate_onebody(dofs, nn_bonds, (delta, qn1, qn2) ->
-        qn1.spin == qn2.spin ? -1.0 : 0.0)
+        qn1.spin == qn2.spin ? -1.0 : 0.0).ops
     # Each bond generates 2 terms (only same-spin) and their H.C. terms.
     @test length(ops_diag) == length(nn_bonds) * 2 * 2
 
@@ -302,7 +302,7 @@ end
 
     # Test 3: Complex hopping
     ops_complex = generate_onebody(dofs, nn_bonds, (delta, qn1, qn2) ->
-        qn1.spin == qn2.spin ? (1.0 + 0.5im) : 0.0)
+        qn1.spin == qn2.spin ? (1.0 + 0.5im) : 0.0).ops
     H_complex = build_onebody_matrix(dofs, ops_complex)
     @test ishermitian(H_complex)
 
@@ -311,6 +311,6 @@ end
         qn1.spin != qn2.spin && return 0.0
         # Value depends on delta direction
         return delta[1] > 0 ? 1.0 : -1.0
-    end)
+    end).ops
     @test length(ops_dir) > 0
 end

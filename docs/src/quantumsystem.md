@@ -218,7 +218,7 @@ end
 t1_terms = generate_onebody(
     dofs, nn_bonds, nn_hopping;
     order = (cdag, 1, c, 2)
-)
+).ops
 
 # ========================================
 # 2. Next-nearest-neighbor hopping: t2 (A-A or B-B)
@@ -276,7 +276,7 @@ end
 t2_terms = generate_onebody(
     dofs, nnn_bonds, nnn_hopping;
     order = (cdag, 1, c, 2)
-)
+).ops
 
 # ========================================
 # 3. Third-nearest-neighbor hopping: t3
@@ -294,7 +294,7 @@ end
 t3_terms = generate_onebody(
     dofs, tn3_bonds, t3_hopping;
     order = (cdag, 1, c, 2)
-)
+).ops
 
 # ========================================
 # 4. Fourth-nearest-neighbor hopping: t4
@@ -311,7 +311,7 @@ end
 t4_terms = generate_onebody(
     dofs, tn4_bonds, t4_hopping;
     order = (cdag, 1, c, 2)
-)
+).ops
 
 # ========================================
 # 5. Fifth-nearest-neighbor hopping: t5
@@ -328,7 +328,7 @@ end
 t5_terms = generate_onebody(
     dofs, tn5_bonds, t5_hopping;
     order = (cdag, 1, c, 2)
-)
+).ops
 
 # ========================================
 # 6. Coulomb interactions (optional)
@@ -505,7 +505,7 @@ function intra_hopping(delta, qn1, qn2)
 end
 
 hopping_intra = generate_onebody(dofs, nn_bonds, intra_hopping;
-    order = (cdag, 1, c, 2))
+    order = (cdag, 1, c, 2)).ops
 
 # Inter-orbital hopping
 function inter_hopping(delta, qn1, qn2)
@@ -513,7 +513,7 @@ function inter_hopping(delta, qn1, qn2)
 end
 
 hopping_inter = generate_onebody(dofs, nn_bonds, inter_hopping;
-    order = (cdag, 1, c, 2))
+    order = (cdag, 1, c, 2)).ops
 
 # ========================================
 # TWO-BODY INTERACTION TERMS

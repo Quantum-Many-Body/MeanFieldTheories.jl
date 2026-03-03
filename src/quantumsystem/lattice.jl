@@ -213,24 +213,40 @@ Represents a bond connecting one or more sites.
 
 # Fields
 - `states::Vector{Q}`: Position states (length determines bond order: 1=onsite, 2=two-body, etc.)
-- `coordinates::Vector{Vector{T}}`: Coordinates for each site
+- `coordinates::Vector{Vector{T}}`: Physical (unwrapped) coordinates for each site.
+  For periodic bonds these may lie outside the simulation cell.
+- `icoordinates::Vector{Vector{T}}`: Unit-cell origin for each site.
+  `icoordinates[n]` is the lattice vector of the unit cell that contains `coordinates[n]`.
+  For intra-cell bonds all entries are zero vectors. For bonds that cross a periodic
+  boundary, the entry for the image site carries the lattice shift, e.g. `[-2.0, 0.0]`.
 
 # Examples
 ```julia
-# Onsite bond (1 site)
+# Onsite bond — icoordinates default to zero vectors
 bond = Bond([state1], [coord1])
 
-# Two-body bond (2 sites)
+# Two-body intra-cell bond
 bond = Bond([state1, state2], [coord1, coord2])
+
+# Two-body bond crossing a periodic boundary (site 2 lives in cell [-2, 0])
+bond = Bond([state1, state2], [coord1, coord2], [[0.0, 0.0], [-2.0, 0.0]])
 ```
 """
 struct Bond{Q<:QuantumNumber, T<:Real}
     states::Vector{Q}
     coordinates::Vector{Vector{T}}
+    icoordinates::Vector{Vector{T}}
+end
+
+# Backward-compatible constructor: icoordinates default to zero vectors
+function Bond(states::Vector{Q}, coordinates::Vector{Vector{T}}) where {Q<:QuantumNumber, T<:Real}
+    D = length(coordinates[1])
+    icoords = [zeros(T, D) for _ in states]
+    return Bond{Q, T}(states, coordinates, icoords)
 end
 
 function Base.show(io::IO, bond::Bond)
-    print(io, "Bond(", bond.states, ", ", bond.coordinates, ")")
+    print(io, "Bond(", bond.states, ", ", bond.coordinates, ", icoords=", bond.icoordinates, ")")
 end
 
 """
@@ -334,34 +350,22 @@ function _min_image_distance(
     supercell_vectors::Vector{Vector{T}},
     boundary::NTuple{D, Symbol}
 ) where {D, T}
-    # Try all periodic images and find minimum distance
-    min_dist = Inf
-    delta = coord2 .- coord1
-
-    # For each periodic direction, try shifts -1, 0, +1
-    for shifts in Iterators.product([boundary[i] == :p ? (-1, 0, 1) : (0,) for i in 1:D]...)
-        shifted_delta = copy(delta)
-        for (dim, shift) in enumerate(shifts)
-            shifted_delta .+= shift .* supercell_vectors[dim]
-        end
-        dist = sqrt(sum(shifted_delta .^ 2))
-        if dist < min_dist
-            min_dist = dist
-        end
-    end
-
-    return rd(min_dist)
+    _, dist, _ = _min_image_delta(coord1, coord2, supercell_vectors, boundary)
+    return dist
 end
 
-# Helper: get actual delta vector with minimum image convention
+# Helper: get actual delta vector with minimum image convention.
+# Returns (delta, dist, icell_shift) where icell_shift is the lattice vector
+# of the periodic image used — i.e. the unit-cell origin of coord2's image.
 function _min_image_delta(
     coord1::Vector{T},
     coord2::Vector{T},
     supercell_vectors::Vector{Vector{T}},
     boundary::NTuple{D, Symbol}
 ) where {D, T}
-    min_dist = Inf
-    best_delta = coord2 .- coord1
+    min_dist    = Inf
+    best_delta  = coord2 .- coord1
+    best_shifts = ntuple(_ -> 0, D)
 
     for shifts in Iterators.product([boundary[i] == :p ? (-1, 0, 1) : (0,) for i in 1:D]...)
         delta = coord2 .- coord1
@@ -370,12 +374,16 @@ function _min_image_delta(
         end
         dist = sqrt(sum(delta .^ 2))
         if dist < min_dist
-            min_dist = dist
-            best_delta = delta
+            min_dist    = dist
+            best_delta  = delta
+            best_shifts = shifts
         end
     end
 
-    return rd(best_delta), rd(min_dist)
+    # icell_shift: the lattice vector of the cell containing coord2's image
+    icell_shift = sum(best_shifts[d] .* supercell_vectors[d] for d in 1:D)
+
+    return rd(best_delta), rd(min_dist), rd(icell_shift)
 end
 
 # Helper: generate neighbor bonds by order
@@ -434,7 +442,12 @@ function is_positive_direction(delta::Vector{T}) where T
     return true  # zero vector (shouldn't happen for valid bonds)
 end
 
-# Helper: generate bonds at specific distance (unidirectional)
+# Helper: generate bonds at specific distance (unidirectional).
+#
+# Design: explicitly enumerate ALL periodic images of each site (analogous to
+# tiling the lattice into a supercluster), then collect every image whose
+# distance from site i equals the target distance AND whose displacement is in
+# a "positive" direction (to keep exactly one of each i↔j pair).
 function _generate_distance_bonds(
     lattice::Lattice{D, Q, T},
     supercell_vectors::Vector{Vector{T}},
@@ -444,34 +457,36 @@ function _generate_distance_bonds(
 ) where {D, Q, T}
     result = Bond{Q, T}[]
     n_sites = length(lattice.position_states)
+    zero_vec = zeros(T, D)
+
+    # Shift ranges: ±1 for periodic directions, 0 only for open directions.
+    shift_ranges = [boundary[d] == :p ? (-1, 0, 1) : (0,) for d in 1:D]
 
     for i in 1:n_sites
         for j in 1:n_sites
-            if i == j
-                continue
-            end
+            i == j && continue
 
-            delta, d = _min_image_delta(
-                lattice.coordinates[i],
-                lattice.coordinates[j],
-                supercell_vectors, boundary
-            )
-
-            if abs(d - distance) < tolerance
-                # Only keep positive direction bonds (unidirectional)
-                if !is_positive_direction(delta)
-                    continue
+            for shifts in Iterators.product(shift_ranges...)
+                # Cell-origin displacement for this periodic image of site j.
+                icell_shift = zeros(T, D)
+                for (d, s) in enumerate(shifts)
+                    icell_shift .+= s .* supercell_vectors[d]
                 end
 
-                # Create bond with actual coordinates (not wrapped)
+                delta = rd(lattice.coordinates[j] .- lattice.coordinates[i] .+ icell_shift)
+                dist  = rd(sqrt(sum(delta .^ 2)))
+
+                abs(dist - distance) < tolerance || continue
+                is_positive_direction(delta)      || continue
+
                 coord1 = lattice.coordinates[i]
                 coord2 = rd(coord1 .+ delta)
 
-                bond = Bond(
+                push!(result, Bond(
                     [lattice.position_states[i], lattice.position_states[j]],
-                    [coord1, coord2]
-                )
-                push!(result, bond)
+                    [coord1, coord2],
+                    [zero_vec, rd(icell_shift)]
+                ))
             end
         end
     end
