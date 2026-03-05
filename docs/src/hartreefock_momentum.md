@@ -1,6 +1,8 @@
-# Momentum-Space Hartree-Fock: Derivation
+# Momentum-Space Hartree-Fock Approximation
 
-## 1. Real-Space Starting Point
+## Theory
+
+### 1. Real-Space Starting Point
 
 Consider the Coulomb interaction Hamiltonian projected onto a Wannier basis, written in **InterAll** form:
 
@@ -17,14 +19,14 @@ where the Wannier functions satisfy $w_{i\alpha}(\mathbf{r}) = w_\alpha(\mathbf{
 
 ---
 
-## 2. Fourier Transform to $k$-Space
+### 2. Fourier Transform to $k$-Space
 
-### 2.1 Fourier Transform Convention
+#### 2.1 Fourier Transform Convention
 
 $$c_{i\alpha} = \frac{1}{\sqrt{N}}\sum_{\mathbf{k}} e^{i\mathbf{k}\cdot\mathbf{R}_i}\,c_{\mathbf{k}\alpha}, \qquad
 c^\dagger_{i\alpha} = \frac{1}{\sqrt{N}}\sum_{\mathbf{k}} e^{-i\mathbf{k}\cdot\mathbf{R}_i}\,c^\dagger_{\mathbf{k}\alpha}$$
 
-### 2.2 Translational Invariance
+#### 2.2 Translational Invariance
 
 Substituting $w_{i\alpha}(\mathbf{r}) = w_\alpha(\mathbf{r}-\mathbf{R}_i)$ into the matrix element gives
 
@@ -63,7 +65,7 @@ $$H_{\text{int}} = \frac{1}{2}\sum_l\sum_{\boldsymbol{\tau}_1\boldsymbol{\tau}_2
 \bar{V}^{abcd}(\boldsymbol{\tau}_1,\boldsymbol{\tau}_2,\boldsymbol{\tau}_3)\,
 c^\dagger_{l+\tau_1,\,a}\,c_{l+\tau_2,\,b}\,c^\dagger_{l+\tau_3,\,c}\,c_{l,d}$$
 
-### 2.3 Substituting the Fourier Expansion
+#### 2.3 Substituting the Fourier Expansion
 
 Expanding each of the four operators, the four phase factors are
 
@@ -79,7 +81,7 @@ Summing over all $\mathbf{R}_l$ imposes **momentum conservation**:
 $$\sum_l e^{\,i(-\mathbf{k}_1+\mathbf{k}_2-\mathbf{k}_3+\mathbf{k}_4)\cdot\mathbf{R}_l}
 = N\,\delta_{\mathbf{k}_1+\mathbf{k}_3,\,\mathbf{k}_2+\mathbf{k}_4}$$
 
-### 2.4 Three-Momentum Interaction Kernel
+#### 2.4 Three-Momentum Interaction Kernel
 
 Summing over the three relative displacements defines the **three-momentum Fourier transform**:
 
@@ -105,9 +107,9 @@ where $\mathbf{k}_4 = \mathbf{k}_1 + \mathbf{k}_3 - \mathbf{k}_2$ is fixed by mo
 
 ---
 
-## 3. Hartree-Fock Decoupling
+### 3. Hartree-Fock Decoupling
 
-### 3.1 One-Body Green's Function (Density Matrix)
+#### 3.1 One-Body Green's Function (Density Matrix)
 
 For a ground state that preserves discrete translational symmetry, the single-particle one-body Green's function (density matrix) is diagonal in momentum space:
 
@@ -116,7 +118,7 @@ $$\langle c^\dagger_{\mathbf{k}\alpha}\,c_{\mathbf{k}'\beta}\rangle
 
 States at different $\mathbf{k}$ points are uncorrelated. If translational symmetry is spontaneously broken (e.g., antiferromagnetic order, charge density wave), the magnetic unit cell must be adopted as the new unit cell and $\mathbf{k}$ redefined in the corresponding Brillouin zone.
 
-### 3.2 Wick Decomposition
+#### 3.2 Wick Decomposition
 
 Applying Wick's theorem to the four-operator product (dropping fully contracted constants), there are four single-contraction channels:
 
@@ -133,7 +135,7 @@ $$c^\dagger_{\mathbf{k}_1 a}\,c_{\mathbf{k}_2 b}\,c^\dagger_{\mathbf{k}_3 c}\,c_
 
 The Hartree terms contract "same-side" operator pairs ($\mathbf{r}_1$ side: $1,2$; $\mathbf{r}_2$ side: $3,4$), while the Fock terms contract "cross-side" pairs, picking up a minus sign from fermionic anticommutation.
 
-### 3.3 Momentum Constraints
+#### 3.3 Momentum Constraints
 
 Using $\langle c^\dagger_{\mathbf{k}\alpha}c_{\mathbf{k}'\beta}\rangle = \delta_{\mathbf{k},\mathbf{k}'}G^{\alpha\beta}(\mathbf{k})$, each contraction under the momentum conservation constraint $\mathbf{k}_1+\mathbf{k}_3 = \mathbf{k}_2+\mathbf{k}_4$ yields the following:
 
@@ -148,7 +150,7 @@ Each contraction reduces the four-operator product to a bilinear $c^\dagger_{\ma
 
 ---
 
-## 4. Hartree-Fock Self-Energy
+### 4. Hartree-Fock Self-Energy
 
 Substituting all contractions back into $H_{\text{int}}$, the mean-field interaction takes the form
 
@@ -176,7 +178,7 @@ The two Hartree terms and two Fock terms are each related by the particle-exchan
 
 ---
 
-## 5. Effective Single-Particle Hamiltonian and Self-Consistent Iteration
+### 5. Effective Single-Particle Hamiltonian and Self-Consistent Iteration
 
 The single-body hopping term (diagonal in $\mathbf{k}$ after Fourier transform)
 
@@ -198,7 +200,7 @@ Self-consistent iteration procedure:
 
 ---
 
-## 6. Special Case: Density-Density Interactions
+### 6. Special Case: Density-Density Interactions
 
 For the most common lattice models (Hubbard $U$, nearest-neighbor Coulomb $V$, Hund's coupling, exchange interactions, etc.), the interaction has a "density-density" structure: the Wannier function integral on each side is dominated by a single site, i.e., $i=j$ ($\mathbf{r}_1$-side density localized at site $i$) and $k=l$ ($\mathbf{r}_2$-side density localized at site $k$). In this case,
 
@@ -234,3 +236,35 @@ G^{\mu\nu}(\mathbf{r})\right]$$
 where $\mathbf{r}$ runs over all $N$ lattice sites, $W^{abcd}(\mathbf{r})$ is the real-space interaction kernel (the displacement between the two density operators, i.e. $\mathbf{r} = \mathbf{R}_i - \mathbf{R}_l = \boldsymbol{\tau}$ from above), and $G^{\mu\nu}(\mathbf{r}) = \frac{1}{N}\sum_\mathbf{k} e^{-i\mathbf{k}\cdot\mathbf{r}}G^{\mu\nu}(\mathbf{k})$ is the real-space one-body Green's function.
 
 Note that $W(\mathbf{r})$ is defined as an $N$-point array over all lattice sites; short-ranged interactions simply set most entries to zero (e.g. for on-site Hubbard $U$, only $W(\mathbf{r}=\mathbf{0})\neq 0$). The FFT operates on the full $N$-point array regardless of sparsity. A sparse $W(\mathbf{r})$ produces a slowly-varying $\widetilde{W}(\mathbf{q})$ — in the Hubbard case $\widetilde{W}(\mathbf{q})=U$ is constant, so the Fock self-energy $\Sigma_F(\mathbf{q}) = -U\,G(\mathbf{r}=\mathbf{0})$ is momentum-independent, consistent with the locality of the on-site interaction.
+
+---
+
+## Code Implementation
+
+### 1. Preprocessing: Kinetic Term
+
+**`build_Tr(dofs, ops, irvec)`** — Parses one-body operators and builds the real-space hopping table $T_{ab}(\mathbf{r})$ as a sparse entry list. Returns `(entries, d_int)` where each entry carries the displacement $\mathbf{r}$, orbital indices $(a, b)$, and hopping amplitude.
+
+**`build_Tk(T_r, kgrid)`** — Fourier-transforms the $T(\mathbf{r})$ table to $T_{ab}(\mathbf{k})$ at every $\mathbf{k}$-point:
+
+$$T_{ab}(\mathbf{k}) = \sum_{\mathbf{r}} T_{ab}(\mathbf{r})\,e^{i\mathbf{k}\cdot\mathbf{r}}$$
+
+Returns a precomputed `Array{ComplexF64, 3}` of shape $(N_k, d, d)$.
+
+### 2. Preprocessing: Interaction Term
+
+**`build_Vr(dofs, lattice, ops)`** — Parses two-body operators and builds the real-space interaction table $\bar{V}^{abcd}(\boldsymbol{\tau}_1, \boldsymbol{\tau}_2, \boldsymbol{\tau}_3)$ as a sparse entry list. For density-density interactions all entries satisfy $\boldsymbol{\tau}_1 = \boldsymbol{\tau}_2$ and $\boldsymbol{\tau}_3 = \mathbf{0}$; this structure is detected downstream to select the FFT convolution path.
+
+**`build_Vk(V_r, kgrid)`** — Fourier-transforms $\bar{V}(\boldsymbol{\tau}_1, \boldsymbol{\tau}_2, \boldsymbol{\tau}_3)$ to the three-momentum kernel $\widetilde{V}(\mathbf{k}_1, \mathbf{k}_2, \mathbf{k}_3)$, returned as a closure evaluated on demand. Only needed for the general (non-density-density) path.
+
+### 3. Self-Consistent Field Iteration
+
+**`build_heff_k!(H_k, T_k, V_r, G_k, G_r, kgrid)`** — Builds $H^\text{eff}(\mathbf{q}) = T(\mathbf{q}) + \Sigma(\mathbf{q})$ in-place. Automatically selects between:
+- **Density-density path** (Theory §6): $O(N_k \log N_k)$ via FFT convolution.
+- **General path** (Theory §4): $O(N_k^2 d^4)$ direct summation using $\widetilde{V}$ from `build_Vk`.
+
+**`solve_hfk(dofs, lattice, onebody, twobody, n_electrons)`** — Public entry point. Runs the full SCF loop described in Theory §5 and returns a `NamedTuple` with fields `G_k`, `G_r`, `eigenvalues`, `eigenvectors`, `energies` (band / interaction / total), `mu`, `ncond`, `kgrid`, `converged`, `iterations`, and `residual`.
+
+Supports linear mixing and DIIS acceleration, multiple random restarts with lowest-energy selection, and finite-temperature Fermi-Dirac occupation.
+
+> **To be added**: detailed step-by-step description of the SCF loop (initialization, $k$-point Hamiltonian construction, diagonalization, Green's function update, mixing, convergence criterion, and output fields) — pending completion of the code implementation.

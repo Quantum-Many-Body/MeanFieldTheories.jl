@@ -29,13 +29,13 @@ end
 # ──────────────── Build Hamiltonian matrices ────────────────
 
 """
-    build_t_matrix(dofs, ops)
+    build_T(dofs, ops)
 
 Build sparse one-body Hamiltonian (N×N) from one-body operators.
 Only stores elements within the same symmetry block (from `dofs.blocks`).
 Returns a sparse Hermitian matrix.
 """
-function build_t_matrix(dofs::SystemDofs, ops::AbstractVector{<:Operators})
+function build_T(dofs::SystemDofs, ops::AbstractVector{<:Operators})
     N = total_dim(dofs)
     blocks = dofs.blocks
     onebody = filter(op -> length(op.ops) == 2 && all(o isa FermionOp for o in op.ops), ops)
@@ -54,7 +54,7 @@ function build_t_matrix(dofs::SystemDofs, ops::AbstractVector{<:Operators})
 end
 
 """
-    build_U_matrix(dofs, ops; include_fock=true)
+    build_U(dofs, ops; include_fock=true)
 
 Build sparse HF interaction matrix (N²×N²) from two-body operators.
 Applies the antisymmetrization formula directly, skipping the V tensor.
@@ -66,7 +66,7 @@ The 4-term decomposition is:
 - Hartree: `U_{ij,kl} += V_{ijkl} + V_{klij}`
 - Fock:    `U_{ij,kl} -= V_{kjil} + V_{ilkj}` (skipped if include_fock=false)
 """
-function build_U_matrix(dofs::SystemDofs, ops::AbstractVector{<:Operators};
+function build_U(dofs::SystemDofs, ops::AbstractVector{<:Operators};
                         include_fock::Bool = true)
     N = total_dim(dofs)
     blocks = dofs.blocks
@@ -109,7 +109,7 @@ function _accum!(d::Dict{String, Tuple{Int64, Int}}, key::String, ns::Int64)
     d[key] = (prev_ns + ns, cnt + 1)
 end
 
-const _PHASE_ORDER = ["build_t_matrix", "build_U_matrix", "initialize_green",
+const _PHASE_ORDER = ["build_T", "build_U", "initialize_green",
                       "build_h_eff", "diagonalize", "update_green", "calc_energies",
                       "solve_hf"]
 
@@ -194,15 +194,15 @@ function solve_hf(
     verbose && println("="^60)
     if verbose; println(_now_str() * " Building Hamiltonian  ($(length(ops)) operators)"); flush(stdout); end
 
-    t0 = Int64(time_ns()); t_matrix = build_t_matrix(dofs, ops); _accum!(timings, "build_t_matrix", Int64(time_ns()) - t0)
+    t0 = Int64(time_ns()); t_matrix = build_T(dofs, ops); _accum!(timings, "build_T", Int64(time_ns()) - t0)
     if verbose
-        println(@sprintf("               t matrix: %s, nnz = %-6d  %s", string(size(t_matrix)), nnz(t_matrix), _fmt_ns(timings["build_t_matrix"][1])))
+        println(@sprintf("               t matrix: %s, nnz = %-6d  %s", string(size(t_matrix)), nnz(t_matrix), _fmt_ns(timings["build_T"][1])))
         flush(stdout)
     end
 
-    t0 = Int64(time_ns()); U_matrix = build_U_matrix(dofs, ops, include_fock=include_fock); _accum!(timings, "build_U_matrix", Int64(time_ns()) - t0)
+    t0 = Int64(time_ns()); U_matrix = build_U(dofs, ops, include_fock=include_fock); _accum!(timings, "build_U", Int64(time_ns()) - t0)
     if verbose
-        println(@sprintf("               U matrix: %s, nnz = %-6d  %s", string(size(U_matrix)), nnz(U_matrix), _fmt_ns(timings["build_U_matrix"][1])))
+        println(@sprintf("               U matrix: %s, nnz = %-6d  %s", string(size(U_matrix)), nnz(U_matrix), _fmt_ns(timings["build_U"][1])))
         flush(stdout)
     end
 

@@ -62,8 +62,8 @@ export generate_onebody, generate_twobody
 export build_onebody_matrix, build_interaction_tensor
 
 # Export Hartree-Fock functions
-export build_t_matrix, build_U_matrix, solve_hf#hartreefock_real
-export build_tk
+export build_T, build_U, solve_hf#hartreefock_real
+export build_Tr, build_Tk, build_Vr, build_Vk
 
 # Export utility constants
 export PRECISION, rd

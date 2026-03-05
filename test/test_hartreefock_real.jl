@@ -7,7 +7,7 @@ using LinearAlgebra
 using SparseArrays
 using MeanFieldTheories
 
-@testset "build_t_matrix" begin
+@testset "build_T_matrix" begin
     # Setup a simple 2-site, 2-spin system
     dofs = SystemDofs([Dof(:site, 2), Dof(:spin, 2)], sortrule = [[2], 1])
     N = total_dim(dofs)  # Should be 4
@@ -21,7 +21,7 @@ using MeanFieldTheories
     t_ops = generate_onebody(dofs, nn_bonds, -1.0).ops
 
     @testset "Basic functionality" begin
-        t_matrix = build_t_matrix(dofs, t_ops)
+        t_matrix = build_T_matrix(dofs, t_ops)
 
         @test size(t_matrix) == (N, N)
         @test t_matrix isa SparseMatrixCSC
@@ -35,8 +35,8 @@ using MeanFieldTheories
         # Create dofs without explicit blocks (single block)
         dofs_no_block = SystemDofs([Dof(:site, 2), Dof(:spin, 2)])
 
-        t_with_blocks = build_t_matrix(dofs_blocked, t_ops)
-        t_without_blocks = build_t_matrix(dofs_no_block, t_ops)
+        t_with_blocks = build_T_matrix(dofs_blocked, t_ops)
+        t_without_blocks = build_T_matrix(dofs_no_block, t_ops)
 
         # With explicit blocks should have same or fewer non-zeros (t is block-diagonal)
         @test nnz(t_with_blocks) <= nnz(t_without_blocks)
@@ -53,14 +53,14 @@ using MeanFieldTheories
     @testset "Consistency with dense version" begin
         # Use dofs without blocks so no filtering occurs; both functions must agree.
         dofs_no_block = SystemDofs([Dof(:site, 2), Dof(:spin, 2)])
-        t_sparse = build_t_matrix(dofs_no_block, t_ops)
+        t_sparse = build_T_matrix(dofs_no_block, t_ops)
         t_dense = build_onebody_matrix(dofs_no_block, t_ops)
 
         @test Matrix(t_sparse) ≈ t_dense
     end
 
     @testset "Error handling" begin
-        @test_throws ErrorException build_t_matrix(dofs, Operators[])
+        @test_throws ErrorException build_T_matrix(dofs, Operators[])
     end
 end
 

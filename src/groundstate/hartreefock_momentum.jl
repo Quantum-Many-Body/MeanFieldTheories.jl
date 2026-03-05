@@ -27,39 +27,20 @@ using FFTW
 # ──────────────── Preprocessing: kinetic term ────────────────
 
 """
-    build_tk(dofs, ops, irvec) -> Function
+    build_Tr(dofs, ops, irvec) -> NamedTuple
 
-Precompute the real-space hopping table T_{ab}(r) and return a closure that
-evaluates the kinetic Hamiltonian at any k-point on demand:
-
-    T(k)[a, b] = Σ_r  T_{ab}(r) · exp(i k · r)
-
-where a, b index ALL degrees of freedom in `dofs` (i.e. `dofs` represents
-exactly one magnetic unit cell), and r is the inter-cell displacement encoded
-in `irvec`.
-
-The k-grid is not fixed here — the returned function accepts any k vector,
-decoupling the kinetic preprocessing from the choice of k-grid.
+Parse one-body operators and build the real-space hopping table T_{ab}(r).
 
 # Arguments
-- `dofs::SystemDofs`: DOFs of one magnetic unit cell. All `dofs.valid_states`
-  are treated as internal (band) indices.
-- `ops::Vector{Operators}`: one-body operator terms (`onebody.ops` from `generate_onebody`)
-- `irvec::Vector{Vector{Float64}}`: inter-cell displacement per term (`onebody.irvec`)
+- `dofs::SystemDofs`: DOFs of one magnetic unit cell.
+- `ops::Vector{<:Operators}`: one-body operator terms (2 FermionOp entries).
+- `irvec::Vector{<:AbstractVector{<:Real}}`: displacement per operator term.
 
 # Returns
-A closure `f(k::AbstractVector{<:Real}) -> Matrix{ComplexF64}` of shape
-`(d_int, d_int)` where `d_int = length(dofs.valid_states)`. Each returned
-matrix is Hermitian (assuming `ops` was generated with `hc=true`).
-
-# Example
-```julia
-onebody = generate_onebody(magcell_dofs, nn_bonds, -1.0)
-T_func  = build_tk(magcell_dofs, onebody.ops, onebody.irvec)
-T_k     = stack([T_func(k) for k in kgrid.k_points], dims=1)  # (Nk, d, d)
-```
+`NamedTuple (entries, d_int)` where `entries` is a sparse table of
+`@NamedTuple{r, a, b, val}` and `d_int = length(dofs.valid_states)`.
 """
-function build_tk(
+function build_Tr(
     dofs::SystemDofs,
     ops::Vector{<:Operators},
     irvec::Vector{<:AbstractVector{<:Real}}
@@ -67,7 +48,6 @@ function build_tk(
     basis_index = Dict(qn => i for (i, qn) in enumerate(dofs.valid_states))
     d_int = length(dofs.valid_states)
 
-    # Build T_{ab}(r) directly — one magnetic unit cell, no duplicates.
     T_r_entries = Vector{@NamedTuple{r::Vector{Float64}, a::Int, b::Int, val::ComplexF64}}()
     for (op, r) in zip(ops, irvec)
         length(op.ops) == 2 || continue
@@ -78,13 +58,34 @@ function build_tk(
         push!(T_r_entries, (r=r, a=a, b=b, val=ComplexF64(sign * op.value)))
     end
 
-    return function (k::AbstractVector{<:Real})
-        T = zeros(ComplexF64, d_int, d_int)
-        for (; r, a, b, val) in T_r_entries
-            T[a, b] += val * exp(im * dot(k, r))
+    return (entries=T_r_entries, d_int=d_int)
+end
+
+"""
+    build_Tk(T_r, kgrid) -> Array{ComplexF64, 3}
+
+Fourier-transform the real-space hopping table to k-space:
+
+    T_{ab}(k) = Σ_r  T_{ab}(r) · exp(i k · r)
+
+Evaluates at every k-point in `kgrid` and returns a precomputed array of
+shape `(Nk, d_int, d_int)`. Each slice `T_k[k, :, :]` is Hermitian
+(assuming `ops` was generated with `hc=true`).
+
+# Arguments
+- `T_r`: Real-space hopping table from `build_Tr` (NamedTuple with `entries` and `d_int`).
+- `kgrid`: k-grid struct providing `k_points` and `nk`.
+"""
+function build_Tk(T_r, kgrid)
+    d_int = T_r.d_int
+    Nk    = kgrid.nk
+    T_k   = zeros(ComplexF64, Nk, d_int, d_int)
+    for (ki, k) in enumerate(kgrid.k_points)
+        for (; r, a, b, val) in T_r.entries
+            T_k[ki, a, b] += val * exp(im * dot(k, r))
         end
-        return T
     end
+    return T_k
 end
 
 
@@ -124,79 +125,70 @@ end
 # ──────────────── Preprocessing: interaction term ────────────────
 
 """
-    build_W_r(dofs, lattice, ops) -> Dict
+    build_Vr(dofs, lattice, ops) -> NamedTuple
 
-Build the two-body interaction W^{abcd}(r) in a sparse dictionary representation.
+Parse two-body operators and build the real-space interaction table V̄^{abcd}(τ1, τ2, τ3).
 
-For each two-body operator contributing V · c†_i c_j c†_k c_l, computes the
-displacement r = R_k - R_i (or equivalently r = R_l - R_j by translation invariance)
-and maps to the internal indices a=(α_i), b=(α_j), c=(α_k), d=(α_l):
+Under translational invariance, the full 4-site interaction V^{abcd}_{ijkl} depends
+only on three relative displacements τ1 = R_i - R_l, τ2 = R_j - R_l, τ3 = R_k - R_l.
+For each operator V · c†_ia c_jb c†_kc c_ld, sets τ1, τ2, τ3 from the site positions
+and accumulates V into the sparse table.
 
-    W[(r_idx, a, b, c, d)] += V
-
-where r_idx is the index of the displacement vector in the lattice displacement table.
+The density-density (Hubbard-type) case is automatically handled: when all hoppings
+satisfy R_i = R_k (same site for creation operators), τ1 = τ3 = 0 everywhere, and
+the table degenerates to a single-displacement form W^{abcd}(r = τ2). This is detected
+downstream to select the FFT convolution path instead of direct three-momentum FT.
 
 # Arguments
-- `dofs::SystemDofs`: Full system DOFs
-- `lattice::Lattice`: Lattice structure
-- `ops`: Two-body operators (those with 4 FermionOp entries)
+- `dofs::SystemDofs`: DOFs of one magnetic unit cell.
+- `lattice::Lattice`: Lattice structure providing site positions.
+- `ops`: Two-body operators (4 FermionOp entries).
 
 # Returns
-`Dict{NTuple{5, Int}, ComplexF64}` mapping `(r_idx, a, b, c, d) => W_value`.
-
-Also returns the displacement table as a second value:
-`(W_r, displacements)` where `displacements::Vector{Vector{Float64}}` maps
-r_idx to the real-space displacement vector.
+`NamedTuple (entries, d_int, displacements)` where:
+- `entries`: sparse table of `@NamedTuple{tau1, tau2, tau3, a, b, c, d, val}`
+- `d_int`: internal dimension per unit cell
+- `displacements`: `Vector{Vector{Float64}}` mapping displacement index to real-space vector
 
 # Notes
-- Antisymmetrization is NOT applied here; raw W^{abcd}(r) values are stored.
-- The symmetrized interaction J̃_{ab}(r) used in the SCF loop is built internally
-  by `_symmetrize_interactions`.
+- Raw V̄ values are stored without antisymmetrization; the HF self-energy
+  symmetrization is handled inside `build_heff_k!`.
 """
-function build_W_r(
+function build_Vr(
     dofs::SystemDofs,
     lattice::Lattice,
     ops::AbstractVector{<:Operators}
 )
-  
+
 end
 
 """
-    _symmetrize_interactions(W_r, d_int, n_disp) -> Array{ComplexF64, 4}
+    build_Vk(V_r, kgrid) -> Function
 
-Build the symmetrized interaction tensor J̃_{ab}(r) from W^{abcd}(r).
+Fourier-transform V̄^{abcd}(τ1, τ2, τ3) to the three-momentum interaction kernel:
 
-In the momentum-space HF decoupling, both Hartree terms (W^{abcd} + W^{cdab}) and
-both Fock terms (W^{cbad} + W^{adcb}) can be absorbed into a single symmetrized
-coupling:
+    Ṽ^{abcd}(k1, k2, k3) = Σ_{τ1,τ2,τ3}  V̄^{abcd}(τ1, τ2, τ3)
+                            · exp(-i k1·τ1 + i k2·τ2 - i k3·τ3)
 
-    J̃_{ab}(r) = Σ_{c,d}  [W^{abcd}(r) · G_{cd}(0)  (Hartree)]
-                          + [W^{cbad}(r) · G_{cd}(r)  (Fock)]
-
-However, for building the effective Hamiltonian we precompute:
-
-    J̃^H_{ab}(0)  = Σ_{cd} [W^{abcd}(0) + W^{cdab}(0)] · G_{dc}(0)   (Hartree, r-independent)
-    J̃^F_{ab}(r)  = Σ_{cd} [W^{cbad}(r) + W^{adcb}(-r)] · G_{dc}(r)  (Fock, r-dependent)
-
-In practice, pre-symmetrize the coupling constants as:
-
-    J̃_{ab}(r) = (W^{abcd}(r) + W^{cdab}(-r)^*) / 2
-
-so that applying J̃ once accounts for both terms. This mirrors the
-`_make_ham_inter` symmetrization in uhfk.py.
+Returns a closure `(k1_idx, k2_idx, k3_idx) -> Array{ComplexF64, 4}` that evaluates
+the interaction kernel at any three k-points on demand. The fourth momentum
+k4 = k1 + k3 - k2 is fixed by momentum conservation.
 
 # Arguments
-- `W_r`: Sparse interaction dict from `build_W_r`
-- `d_int::Int`: Internal dimension per unit cell
-- `n_disp::Int`: Number of distinct displacement vectors
+- `V_r`: Real-space interaction table from `build_Vr`.
+- `kgrid`: k-grid struct providing `k_points` and `nk`.
 
 # Returns
-`Array{ComplexF64, 4}` of shape `(n_disp, d_int, d_int, d_int, d_int)` —
-actually a 5-index object J̃[r_idx, a, b, c, d], stored as a dense array
-for cache-friendly access during the SCF loop.
+A callable `Ṽ(k1_idx, k2_idx, k3_idx)` returning `Array{ComplexF64, 4}`
+of shape `(d_int, d_int, d_int, d_int)`.
+
+# Notes
+- Only needed for the general (non-density-density) path in `build_heff_k!`.
+- For density-density interactions (all τ1=τ2, τ3=0 in V_r.entries),
+  `build_heff_k!` uses FFT convolution directly from `V_r` without calling this.
 """
-function _symmetrize_interactions(W_r::Dict, d_int::Int, n_disp::Int)
-  
+function build_Vk(V_r, kgrid)
+
 end
 
 # ──────────────── Green's function utilities ────────────────
@@ -251,47 +243,56 @@ end
 # ──────────────── Effective Hamiltonian ────────────────
 
 """
-    build_heff_k!(H_k, T_k, W_r_sym, G_k, G_r; include_fock=true)
+    build_heff_k!(H_k, T_k, V_r, G_k, G_r, kgrid; include_fock=true)
 
-Build the effective single-particle Hamiltonian H_eff(k) in-place, adding
-Hartree and Fock self-energies to the kinetic term:
+Build the effective single-particle Hamiltonian H_eff(k) in-place:
 
-    H_eff(k) = T(k) + Σ^H(k) + Σ^F(k)
+    H_eff^{αβ}(q) = T^{αβ}(q) + Σ^{αβ}(q)
 
-**Hartree self-energy** (k-independent, same for all k):
+The self-energy Σ^{αβ}(q) is computed from `V_r` via one of two paths,
+selected automatically based on the structure of `V_r.entries`:
 
-    Σ^H_{ab}(k) = Σ_{cd}  [W^{abcd}(0) + W^{cdab}(0)] · G_{dc}(0)
+**Density-density path** (all τ1=τ2, τ3=0 in `V_r.entries`):
 
-Only uses G(r=0), the local density matrix. Broadcast to all k.
-→ Implements Eq. (Σ^H) from the theory section.
+- Hartree (q-independent):
 
-**Fock self-energy** (k-dependent, via convolution):
+      Σ_H^{αβ} = Σ_{μν} W^{μναβ}(r) G^{μν}(r=0)   [summed over r; = W̃^{μναβ}(0) Ḡ^{μν}]
+               = Σ_{μν} W^{αβμν}(r) G^{μν}(r=0)   [symmetry: both terms are equal]
 
-    Σ^F_{ab}(k) = -Σ_r Σ_{cd} [W^{cbad}(r) + W^{adcb}(-r)] · G_{dc}(r) · exp(-i k · r)
-               = -FFT[ J̃^F_{ab}(r) · G_{ba}(r) ]
+- Fock (q-dependent, FFT-accelerated, O(Nk log Nk)):
 
-Uses the convolution theorem to compute Σ^F(k) in O(Nk · d³ + Nk log Nk) operations.
-→ Implements Eq. (Σ^F) from the theory section.
+      Σ_F^{αβ}(q) = -FFT_r→q [ Σ_{μν} ½[W^{μβαν}(r) + W^{ανμβ}(r)] G^{μν}(r) ]
+
+**General path** (non-zero τ1 or τ3 present; direct O(Nk²·d⁴) summation):
+
+    Σ^{αβ}(q) = (1/2N) Σ_k Σ_{μν} [
+        Ṽ^{μναβ}(k,k,q) + Ṽ^{αβμν}(q,q,k)   (Hartree)
+       -Ṽ^{μβαν}(k,q,q) - Ṽ^{ανμβ}(q,k,k)   (Fock)
+    ] G^{μν}(k)
+
+where Ṽ is obtained from `build_Vk(V_r, kgrid)`.
 
 # Arguments
-- `H_k::Array{ComplexF64, 3}`: Output array (Nk, d_int, d_int), modified in-place
+- `H_k::Array{ComplexF64, 3}`: Output (Nk, d_int, d_int), modified in-place
 - `T_k::Array{ComplexF64, 3}`: Kinetic term (Nk, d_int, d_int)
-- `W_r_sym`: Symmetrized interaction tensor from `_symmetrize_interactions`
-- `G_k::Array{ComplexF64, 3}`: Current Green's function in k-space (Nk, d_int, d_int)
-- `G_r::Array{ComplexF64, 3}`: Current Green's function in real-space (Nk, d_int, d_int)
+- `V_r`: Real-space interaction table from `build_Vr`
+- `G_k::Array{ComplexF64, 3}`: Current G^{αβ}(k), shape (Nk, d_int, d_int)
+- `G_r::Array{ComplexF64, 3}`: Current G^{αβ}(r), shape (Nk, d_int, d_int)
+- `kgrid`: k-grid struct (needed for `build_Vk` in the general path)
 
 # Keyword Arguments
-- `include_fock::Bool = true`: Include Fock exchange term (set false for Hartree-only)
+- `include_fock::Bool = true`: Include Fock exchange (set false for Hartree-only)
 """
 function build_heff_k!(
     H_k::Array{ComplexF64, 3},
     T_k::Array{ComplexF64, 3},
-    W_r_sym,
+    V_r,
     G_k::Array{ComplexF64, 3},
-    G_r::Array{ComplexF64, 3};
+    G_r::Array{ComplexF64, 3},
+    kgrid;
     include_fock::Bool = true
 )
-  
+
 end
 
 # ──────────────── Diagonalization and occupation ────────────────
@@ -403,7 +404,7 @@ function calculate_energies_k(
     G_k::Array{ComplexF64, 3},
     G_r::Array{ComplexF64, 3},
     T_k::Array{ComplexF64, 3},
-    W_r_sym,
+    V_r,
     eigenvalues::Matrix{Float64},
     mu::Float64,
     n_electrons::Int,
@@ -431,7 +432,7 @@ end
 function _run_scf_k(
     G_k::Array{ComplexF64, 3},
     T_k::Array{ComplexF64, 3},
-    W_r_sym,
+    V_r,
     kgrid,
     n_electrons::Int,
     temperature::Float64,
@@ -449,7 +450,7 @@ end
 
 # ──────────────── Timing utilities (mirrors hartreefock_real.jl) ────────────────
 
-const _PHASE_ORDER_K = ["build_T_k", "build_W_r", "initialize_green_k",
+const _PHASE_ORDER_K = ["build_Tr", "build_Tk", "build_Vr", "initialize_green_k",
                         "build_heff_k", "diagonalize_k", "update_green_k",
                         "calc_energies_k", "solve_hfk"]
 
@@ -580,19 +581,19 @@ function solve_hfk(
     end
 
     # ── Preprocessing ──
-    t0     = Int64(time_ns())
-    T_func = build_tk(dofs, onebody.ops, onebody.irvec)
-    T_k    = stack([T_func(k) for k in kgrid.k_points], dims=1)
-    _accum!(timings, "build_T_k", Int64(time_ns()) - t0)
-    verbose && println(@sprintf("               T(k): shape %s  %s", string(size(T_k)), _fmt_ns(timings["build_T_k"][1])))
+    t0 = Int64(time_ns())
+    T_r = build_Tr(dofs, onebody.ops, onebody.irvec)
+    _accum!(timings, "build_Tr", Int64(time_ns()) - t0)
 
     t0 = Int64(time_ns())
-    W_r, displacements = build_W_r(dofs, lattice, twobody)
-    _accum!(timings, "build_W_r", Int64(time_ns()) - t0)
-    verbose && println(@sprintf("               W(r): %d entries  %s", length(W_r), _fmt_ns(timings["build_W_r"][1])))
+    T_k = build_Tk(T_r, kgrid)
+    _accum!(timings, "build_Tk", Int64(time_ns()) - t0)
+    verbose && println(@sprintf("               T(k): shape %s  %s", string(size(T_k)), _fmt_ns(timings["build_Tk"][1])))
 
-    n_disp = length(displacements)
-    W_r_sym = _symmetrize_interactions(W_r, d_int, n_disp)
+    t0 = Int64(time_ns())
+    V_r = build_Vr(dofs, lattice, twobody)
+    _accum!(timings, "build_Vr", Int64(time_ns()) - t0)
+    verbose && println(@sprintf("               V(r): %d entries  %s", length(V_r.entries), _fmt_ns(timings["build_Vr"][1])))
 
     # ── Validation ──
     @assert 0 < mix_alpha <= 1  "mix_alpha must be in (0, 1]"
@@ -623,7 +624,7 @@ function solve_hfk(
               initialize_green_k(Nk, d_int, rng=rng)
         _accum!(timings, "initialize_green_k", Int64(time_ns()) - t0)
 
-        result = _run_scf_k(G_k, T_k, W_r_sym, kgrid, n_electrons,
+        result = _run_scf_k(G_k, T_k, V_r, kgrid, n_electrons,
                             temperature, max_iter, tol, mix_alpha, diis_m, ene_cutoff,
                             include_fock, n_restarts > 1 ? false : verbose, timings)
 
