@@ -180,6 +180,49 @@ function _reorder_to_interall(ops::Vector{<:FermionOp})
     return sign, ops
 end
 
+"""
+    _reorder_to_interall_with_positions(ops, positions) -> (sign, reordered_ops, reordered_positions)
+
+Same bubble-sort reordering as `_reorder_to_interall`, but also permutes a parallel
+`positions` vector (one `Vector{Float64}` per operator) so that after reordering,
+`reordered_positions[i]` always corresponds to `reordered_ops[i]`.
+
+Used by `generate_twobody` to track which unit-cell position each operator ends up at
+after reordering to InterAll format.
+"""
+function _reorder_to_interall_with_positions(
+    ops::Vector{<:FermionOp},
+    positions::Vector{<:AbstractVector{<:Real}}
+)
+    n = length(ops)
+    ops = copy(ops)
+    positions = copy(positions)
+    sign = 1
+
+    target_dag = [isodd(i) for i in 1:n]
+
+    for i in 1:n
+        j = i
+        while j <= n && ops[j].dag != target_dag[i]
+            j += 1
+        end
+
+        if j > n
+            error("Cannot reorder: wrong number of c† vs c operators. " *
+                  "Expected $(count(target_dag)) creation and $(n - count(target_dag)) annihilation operators.")
+        end
+
+        while j > i
+            ops[j-1], ops[j] = ops[j], ops[j-1]
+            positions[j-1], positions[j] = positions[j], positions[j-1]
+            sign *= -1
+            j -= 1
+        end
+    end
+
+    return sign, ops, positions
+end
+
 #==================== General Term Generators ====================#
 
 """
@@ -272,47 +315,63 @@ function generate_onebody(
 end
 
 """
-    generate_twobody(dofs, bonds, value; order=(cdag, 1, c, 1, cdag, 2, c, 2)) -> Vector{Operators}
+    generate_twobody(dofs, bonds, value; order=(cdag, 1, c, 1, cdag, 2, c, 2))
 
 Generate two-body interaction terms from bonds.
 
 # Arguments
-- `dofs::SystemDofs`: Full DOF specification
-- `bonds::Vector{Bond}`: Two-site bonds
+- `dofs::SystemDofs`: Full DOF specification.
+- `bonds::Vector{Bond}`: Bonds with 1–4 sites. The number of sites in each bond must
+  be at least `maximum(site indices in order)`.
 - `value`: Coefficient, either:
-  - `Number`: constant for all combinations
-  - `Function(delta, qn1, qn2, qn3, qn4) -> Number`: custom function used to constrain degrees of freedom.
+  - `Number`: constant for all internal DOF combinations.
+  - `Function(deltas, qn1, qn2, qn3, qn4) -> Number`: custom function to constrain DOFs.
+    `deltas[i] = coordinates[i] - coordinates[nb]` for i = 1 … nb-1 (empty for 1-site bonds).
+    The last site is the reference, consistent with the hopping convention c†_i c_j
+    where direction is from j to i (R_i - R_j). For 2-site bonds `deltas[1]` is the bond
+    vector from site 2 to site 1. For 3- or 4-site bonds `deltas` describes the full cluster geometry.
 
 # Keyword Arguments
-- `order::Tuple`: Format `(type1, site1, type2, site2, type3, site3, type4, site4)`
-  - Default: `(cdag, 1, c, 1, cdag, 2, c, 2)` for density-density n_i n_j
+- `order::Tuple`: Format `(type1, site1, type2, site2, type3, site3, type4, site4)`.
+  Site indices are 1-based and refer to `bond.states[i]` / `bond.coordinates[i]`.
+  - `(cdag,1, c,1, cdag,2, c,2)` — density-density n_1 n_2 (default)
+  - `(cdag,1, c,1, cdag,1, c,1)` — all operators on site 1 (onsite interaction)
+  - `(cdag,1, c,4, cdag,3, c,2)` — all four sites distinct (requires 4-site bond)
+
+# Returns
+`NamedTuple` with two parallel `Vector` fields:
+- `.ops::Vector{Operators}`: operator terms, already reordered to InterAll format
+  (c†c c†c) with the fermionic sign absorbed into the coefficient.
+- `.irvec::Vector{NTuple{3, Vector{Float64}}}`: unit-cell displacements `(τ1, τ2, τ3)`
+  per term in InterAll order, where `τn = icoord(op_n) - icoord(op_4)`.
+  For onsite / density-density interactions τ1 = τ3 = 0.
 
 # NOTICE
-  - All internal degrees of freedom are counted in a mixed manner if one does not constrain degrees of freedom!!!
+  - All internal DOFs are mixed unless constrained via the `value` function.
 
 # Examples
 ```julia
-# nearest-neighbor Coulomb interaction: ∑_{all internal dofs} V n_i n_j
-ops = generate_twobody(dofs, nn_bonds, V)
+# Nearest-neighbor Coulomb: ∑_{all internal dofs} V n_i n_j
+twobody = generate_twobody(dofs, nn_bonds, V)
 
-# onsite Hubbard interaction: ∑_α U n_iα↑ n_iα↓
-ops = generate_twobody(dofs, onsite_bonds, 
-    (delta, qn1, qn2, qn3, qn4) ->
-        (qn1.orbital == qn2.orbital == qn3.orbital == qn4.orbital) &&
-        (qn1.spin, qn2.spin, qn3.spin, qn4.spin) == (1, 1, 2, 2) ? U : 0.0
-    ,
-    order = (cdag, 1, c, 1, cdag, 1, c, 1)
-    )
+# Onsite Hubbard: ∑_α U n_{α↑} n_{α↓}
+twobody = generate_twobody(dofs, onsite_bonds,
+    (deltas, qn1, qn2, qn3, qn4) ->
+        qn1.orbital == qn2.orbital == qn3.orbital == qn4.orbital &&
+        (qn1.spin, qn2.spin, qn3.spin, qn4.spin) == (1, 1, 2, 2) ? U : 0.0,
+    order = (cdag, 1, c, 1, cdag, 1, c, 1))
 
-# Pair hopping: ∑_{α≠β} J c†_iα↑ c†_iα↓ c_iβ↓ c_iβ↑
-ops = = generate_twobody(dofs, onsite_bonds, 
-    (delta, qn1, qn2, qn3, qn4) ->
+# Nearest-neighbor Coulomb in x-direction only (using deltas to select bond direction)
+twobody = generate_twobody(dofs, nn_bonds,
+    (deltas, qn1, qn2, qn3, qn4) -> deltas[1] ≈ [1.0, 0.0] ? V : 0.0)
+
+# Pair hopping: ∑_{α≠β} J c†_{α↑} c†_{α↓} c_{β↓} c_{β↑}
+twobody = generate_twobody(dofs, onsite_bonds,
+    (deltas, qn1, qn2, qn3, qn4) ->
         (qn1.orbital, qn3.orbital) == (qn2.orbital, qn4.orbital) &&
-        (qn1.orbital !== qn3.orbital) &&
-        (qn1.spin, qn2.spin, qn3.spin, qn4.spin) == (1,2,2,1) ? J : 0.0
-    ,
-    order = (cdag, 1, cdag, 1, c, 1, c, 1)
-    )
+        qn1.orbital != qn3.orbital &&
+        (qn1.spin, qn2.spin, qn3.spin, qn4.spin) == (1, 2, 2, 1) ? J : 0.0,
+    order = (cdag, 1, cdag, 1, c, 1, c, 1))
 ```
 """
 function generate_twobody(
@@ -324,37 +383,66 @@ function generate_twobody(
     @assert length(order) == 8 "order must have 8 elements"
     op_type1, site1, op_type2, site2, op_type3, site3, op_type4, site4 = order
     sites = (site1, site2, site3, site4)
-    @assert all(s in (1, 2) for s in sites) "site indices must be 1 or 2"
+    n_sites_needed = maximum(sites)
+    @assert all(s >= 1 for s in sites) "site indices must be >= 1"
 
-    result = Operators[]
+    ops_list   = Operators[]
+    irvec_list = NTuple{3, Vector{Float64}}[]
 
     for bond in bonds
-        if length(bond.states) == 1 #onsite twobody term
-            s1, s2 = bond.states[1], bond.states[1]
-            delta = rd(bond.coordinates[1] .- bond.coordinates[1])
-        elseif length(bond.states) == 2 #different sites twobody term
-            s1, s2 = bond.states
-            delta = rd(bond.coordinates[2] .- bond.coordinates[1])
-        else
-            throw(ArgumentError("Not two-body interaction!"))
-        end
+        nb = length(bond.states)
+        @assert nb >= n_sites_needed "bond has $nb sites but order requires site index $n_sites_needed"
 
-        pos_keys = keys(s1)
+        # deltas[i] = coord[i] - coord[nb]: displacements to each site relative to the last site.
+        # The last site is the reference (source), consistent with the hopping convention
+        # c†_i c_j where the direction is from j (last) to i (first): R_i - R_j.
+        # Also consistent with irvec: τ_n = icoord(op_n) - icoord(op_4).
+        # Empty for 1-site bonds. For 2-site bonds deltas[1] = coord[1] - coord[2].
+        deltas = [rd(bond.coordinates[s] .- bond.coordinates[nb]) for s in 1:nb-1]
 
-        qn_at_site1 = [qn for qn in dofs.valid_states if all(qn[k] == s1[k] for k in pos_keys)]
-        qn_at_site2 = [qn for qn in dofs.valid_states if all(qn[k] == s2[k] for k in pos_keys)]
+        # pos_keys: the position-like keys in bond.states (e.g. :site), used to match
+        # dofs.valid_states entries to each bond site (ignoring internal DOFs like :spin).
+        pos_keys = keys(bond.states[1])
 
-        qn_lists = ntuple(i -> sites[i] == 1 ? qn_at_site1 : qn_at_site2, 4)
+        # qn_at[s]: all valid quantum numbers (with all internal DOFs) sitting at bond
+        # site s. E.g. for site s=1 with spin DOF: [QN(site=1,↑), QN(site=1,↓)].
+        qn_at = [[qn for qn in dofs.valid_states if all(qn[k] == bond.states[s][k] for k in pos_keys)]
+                 for s in 1:nb]
+
+        # qn_lists[i]: the QN pool for the i-th operator, determined by its site index
+        # in `order`. E.g. order=(cdag,1, c,1, cdag,2, c,2) → sites=(1,1,2,2), so
+        # qn_lists = (qn_at[1], qn_at[1], qn_at[2], qn_at[2]).
+        qn_lists = ntuple(i -> qn_at[sites[i]], 4)
+
+        # site_icoords[s]: unit-cell lattice vector of bond site s (used to compute
+        # the relative displacements τ1, τ2, τ3 after InterAll reordering).
+        site_icoords = [Vector{Float64}(bond.icoordinates[s]) for s in 1:nb]
 
         for qn1 in qn_lists[1], qn2 in qn_lists[2], qn3 in qn_lists[3], qn4 in qn_lists[4]
-            v = value isa Number ? value : value(delta, qn1, qn2, qn3, qn4)
-            if !iszero(v)
-                push!(result, Operators(v, [op_type1(qn1), op_type2(qn2), op_type3(qn3), op_type4(qn4)]))
-            end
+            v = value isa Number ? value : value(deltas, qn1, qn2, qn3, qn4)
+            iszero(v) && continue
+
+            # Build operators and their corresponding unit-cell positions in original order.
+            raw_ops = FermionOp[op_type1(qn1), op_type2(qn2), op_type3(qn3), op_type4(qn4)]
+            raw_pos = [site_icoords[sites[i]] for i in 1:4]
+
+            # Reorder to c†c c†c format; positions are permuted in lockstep
+            # so that reord_pos[i] always corresponds to reord_ops[i].
+            sign, reord_ops, reord_pos = _reorder_to_interall_with_positions(raw_ops, raw_pos)
+
+            # τ_n = unit-cell position of op_n minus unit-cell position of op_4 (reference).
+            # Under translational invariance these three relative displacements fully
+            # characterize the four-site interaction.
+            τ1 = rd(reord_pos[1] .- reord_pos[4])
+            τ2 = rd(reord_pos[2] .- reord_pos[4])
+            τ3 = rd(reord_pos[3] .- reord_pos[4])
+
+            push!(ops_list,   Operators(sign * v, reord_ops))
+            push!(irvec_list, (τ1, τ2, τ3))
         end
     end
 
-    return result
+    return (ops=ops_list, irvec=irvec_list)
 end
 
 #==================== Matrix/Tensor Construction ====================#

@@ -31,38 +31,56 @@ using FFTW
 
 Parse one-body operators and build the real-space hopping table T_{ab}(r).
 
+Scans `irvec` to find all unique displacement vectors, then accumulates hopping
+amplitudes into one `d_int × d_int` matrix per displacement. Non-one-body operators
+(i.e. those with `length(op.ops) ≠ 2`) in `ops` are silently skipped, so the full
+operator list from `generate_onebody` (which may include metadata entries) can be
+passed directly.
+
 # Arguments
 - `dofs::SystemDofs`: DOFs of one magnetic unit cell.
-- `ops::Vector{<:Operators}`: one-body operator terms (2 FermionOp entries).
-- `irvec::Vector{<:AbstractVector{<:Real}}`: displacement per operator term.
+- `ops::Vector{<:Operators}`: operator terms; only those with exactly 2 FermionOps
+  (one-body) are used. `ops` may contain operators of other sizes — they are ignored.
+- `irvec::Vector{<:AbstractVector{<:Real}}`: displacement vector per operator term,
+  paired one-to-one with `ops`.
 
 # Returns
-`NamedTuple (entries, d_int)` where `entries` is a sparse table of
-`@NamedTuple{r, a, b, val}` and `d_int = length(dofs.valid_states)`.
+`NamedTuple (mats, rvec)` where:
+- `mats::Vector{Matrix}`: one `d_int × d_int` hopping matrix per unique displacement;
+  element type matches `eltype` of the operator values (e.g. `Float64` or `ComplexF64`).
+- `rvec::Vector{Vector{Float64}}`: the corresponding displacement vectors, same order as `mats`.
+
+If `ops` is empty, emits a warning and returns `(mats=Matrix{Float64}[], rvec=Vector{Float64}[])`.
 """
 function build_Tr(
     dofs::SystemDofs,
     ops::Vector{<:Operators},
     irvec::Vector{<:AbstractVector{<:Real}}
 )
-    basis_index = Dict(qn => i for (i, qn) in enumerate(dofs.valid_states))
     d_int = length(dofs.valid_states)
+    if isempty(ops)
+        @warn "No operators found"
+        return (mats=Matrix{Float64}[], rvec=Vector{Float64}[])
+    end
+    T = eltype(map(op -> op.value, ops))
 
-    T_r_entries = Vector{@NamedTuple{r::Vector{Float64}, a::Int, b::Int, val::ComplexF64}}()
+    rvec = unique(Vector{Float64}.(irvec))
+    mats = [zeros(T, d_int, d_int) for _ in rvec]
+
     for (op, r) in zip(ops, irvec)
         length(op.ops) == 2 || continue
         sign, reord = _reorder_to_interall(Vector{FermionOp}(op.ops))
-        a = get(basis_index, reord[1].qn, 0)
-        b = get(basis_index, reord[2].qn, 0)
-        (a == 0 || b == 0) && continue
-        push!(T_r_entries, (r=r, a=a, b=b, val=ComplexF64(sign * op.value)))
+        a = findfirst(==(reord[1].qn), dofs.valid_states)
+        b = findfirst(==(reord[2].qn), dofs.valid_states)
+        idx = findfirst(==(Vector{Float64}(r)), rvec)
+        mats[idx][a, b] += sign * op.value
     end
 
-    return (entries=T_r_entries, d_int=d_int)
+    return (mats=mats, rvec=rvec)
 end
 
 """
-    build_Tk(T_r, kgrid) -> Array{ComplexF64, 3}
+    build_Tk(T_r, kgrid) -> Union{Array{ComplexF64, 3}, Nothing}
 
 Fourier-transform the real-space hopping table to k-space:
 
@@ -72,55 +90,25 @@ Evaluates at every k-point in `kgrid` and returns a precomputed array of
 shape `(Nk, d_int, d_int)`. Each slice `T_k[k, :, :]` is Hermitian
 (assuming `ops` was generated with `hc=true`).
 
+Returns `nothing` if `T_r.mats` is empty (no hopping terms).
+
 # Arguments
-- `T_r`: Real-space hopping table from `build_Tr` (NamedTuple with `entries` and `d_int`).
+- `T_r`: Real-space hopping table from `build_Tr` (NamedTuple with `mats` and `rvec`).
 - `kgrid`: k-grid struct providing `k_points` and `nk`.
 """
 function build_Tk(T_r, kgrid)
-    d_int = T_r.d_int
+    isempty(T_r.mats) && return nothing
+    d_int = size(T_r.mats[1], 1)
     Nk    = kgrid.nk
     T_k   = zeros(ComplexF64, Nk, d_int, d_int)
     for (ki, k) in enumerate(kgrid.k_points)
-        for (; r, a, b, val) in T_r.entries
-            T_k[ki, a, b] += val * exp(im * dot(k, r))
+        for (mat, r) in zip(T_r.mats, T_r.rvec)
+            @views T_k[ki, :, :] .+= mat .* cis(dot(k, r))
         end
     end
     return T_k
 end
 
-
-"""
-    check_translational_symmetry(dofs, onebody; tol=1e-10)
-
-Verify translational symmetry of a one-body operator set. For each (irvec, a, b),
-all copies of the hopping amplitude must agree to within `tol`.
-
-Call during development/debugging; not needed in production runs.
-"""
-function check_translational_symmetry(
-    dofs::SystemDofs,
-    onebody::NamedTuple;   # result of generate_onebody: (ops, delta, irvec)
-    tol::Float64 = 1e-10
-)
-    basis_index = Dict(qn => i for (i, qn) in enumerate(dofs.valid_states))
-
-    T_r = Dict{Tuple{Vector{Float64}, Int, Int}, ComplexF64}()
-    for (op, irvec) in zip(onebody.ops, onebody.irvec)
-        length(op.ops) == 2 || continue
-        sign, reord = _reorder_to_interall(Vector{FermionOp}(op.ops))
-        a = get(basis_index, reord[1].qn, 0)
-        b = get(basis_index, reord[2].qn, 0)
-        (a == 0 || b == 0) && continue
-        v   = ComplexF64(sign * op.value)
-        key = (irvec, a, b)
-        if haskey(T_r, key)
-            @assert abs(T_r[key] - v) < tol "Translational symmetry violated: T[$a,$b](irvec=$irvec): $(T_r[key]) vs $v"
-        else
-            T_r[key] = v
-        end
-    end
-    return true
-end
 
 # ──────────────── Preprocessing: interaction term ────────────────
 
@@ -285,7 +273,7 @@ where Ṽ is obtained from `build_Vk(V_r, kgrid)`.
 """
 function build_heff_k!(
     H_k::Array{ComplexF64, 3},
-    T_k::Array{ComplexF64, 3},
+    T_k::Union{Nothing, Array{ComplexF64, 3}},
     V_r,
     G_k::Array{ComplexF64, 3},
     G_r::Array{ComplexF64, 3},
@@ -431,7 +419,7 @@ end
 # Internal: run one SCF loop from initial G_k; returns NamedTuple with all results.
 function _run_scf_k(
     G_k::Array{ComplexF64, 3},
-    T_k::Array{ComplexF64, 3},
+    T_k::Union{Nothing, Array{ComplexF64, 3}},
     V_r,
     kgrid,
     n_electrons::Int,
@@ -588,7 +576,10 @@ function solve_hfk(
     t0 = Int64(time_ns())
     T_k = build_Tk(T_r, kgrid)
     _accum!(timings, "build_Tk", Int64(time_ns()) - t0)
-    verbose && println(@sprintf("               T(k): shape %s  %s", string(size(T_k)), _fmt_ns(timings["build_Tk"][1])))
+    if verbose
+        tk_info = T_k === nothing ? "nothing (no hopping)" : string(size(T_k))
+        println(@sprintf("               T(k): %s  %s", tk_info, _fmt_ns(timings["build_Tk"][1])))
+    end
 
     t0 = Int64(time_ns())
     V_r = build_Vr(dofs, lattice, twobody)
