@@ -231,4 +231,6 @@ $$\Sigma_F^{\alpha\beta}(\mathbf{q}) = -\mathcal{F}_{\mathbf{r}\to\mathbf{q}}\!\
 \frac{1}{2}\!\left[W^{\mu\beta\alpha\nu}(\mathbf{r})+W^{\alpha\nu\mu\beta}(\mathbf{r})\right]
 G^{\mu\nu}(\mathbf{r})\right]$$
 
-where $G^{\mu\nu}(\mathbf{r}) = \frac{1}{N}\sum_\mathbf{k} e^{-i\mathbf{k}\cdot\mathbf{r}}G^{\mu\nu}(\mathbf{k})$ is the real-space one-body Green's function.
+where $\mathbf{r}$ runs over all $N$ lattice sites, $W^{abcd}(\mathbf{r})$ is the real-space interaction kernel (the displacement between the two density operators, i.e. $\mathbf{r} = \mathbf{R}_i - \mathbf{R}_l = \boldsymbol{\tau}$ from above), and $G^{\mu\nu}(\mathbf{r}) = \frac{1}{N}\sum_\mathbf{k} e^{-i\mathbf{k}\cdot\mathbf{r}}G^{\mu\nu}(\mathbf{k})$ is the real-space one-body Green's function.
+
+Note that $W(\mathbf{r})$ is defined as an $N$-point array over all lattice sites; short-ranged interactions simply set most entries to zero (e.g. for on-site Hubbard $U$, only $W(\mathbf{r}=\mathbf{0})\neq 0$). The FFT operates on the full $N$-point array regardless of sparsity. A sparse $W(\mathbf{r})$ produces a slowly-varying $\widetilde{W}(\mathbf{q})$ — in the Hubbard case $\widetilde{W}(\mathbf{q})=U$ is constant, so the Fock self-energy $\Sigma_F(\mathbf{q}) = -U\,G(\mathbf{r}=\mathbf{0})$ is momentum-independent, consistent with the locality of the on-site interaction.
