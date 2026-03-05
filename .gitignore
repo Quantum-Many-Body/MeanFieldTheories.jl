@@ -27,8 +27,7 @@ Manifest*.toml
 LocalPreferences.toml
 JuliaLocalPreferences.toml
 
-# PNG, PDF and Python files
-*.png
+# PDF and Python files
 *.pdf
 *.py
 example/
