@@ -82,12 +82,12 @@ where $\mathbf{k}_4 = \mathbf{k}_1 + \mathbf{k}_3 - \mathbf{k}_2$ is fixed by mo
 
 ## 3. Hartree-Fock Decoupling
 
-### 3.1 Density Matrix
+### 3.1 One-Body Green's Function (Density Matrix)
 
-For a ground state that preserves discrete translational symmetry, the single-particle density matrix is diagonal in momentum space:
+For a ground state that preserves discrete translational symmetry, the single-particle one-body Green's function (density matrix) is diagonal in momentum space:
 
 $$\langle c^\dagger_{\mathbf{k}\alpha}\,c_{\mathbf{k}'\beta}\rangle
-= \delta_{\mathbf{k},\mathbf{k}'}\,\rho^{\alpha\beta}(\mathbf{k})$$
+= \delta_{\mathbf{k},\mathbf{k}'}\,G^{\alpha\beta}(\mathbf{k})$$
 
 States at different $\mathbf{k}$ points are uncorrelated. If translational symmetry is spontaneously broken (e.g., antiferromagnetic order, charge density wave), the magnetic unit cell must be adopted as the new unit cell and $\mathbf{k}$ redefined in the corresponding Brillouin zone.
 
@@ -110,7 +110,7 @@ The Hartree terms contract "same-side" operator pairs ($\mathbf{r}_1$ side: $1,2
 
 ### 3.3 Momentum Constraints
 
-Using $\langle c^\dagger_{\mathbf{k}\alpha}c_{\mathbf{k}'\beta}\rangle = \delta_{\mathbf{k},\mathbf{k}'}\rho^{\alpha\beta}(\mathbf{k})$, each contraction under the momentum conservation constraint $\mathbf{k}_1+\mathbf{k}_3 = \mathbf{k}_2+\mathbf{k}_4$ yields the following:
+Using $\langle c^\dagger_{\mathbf{k}\alpha}c_{\mathbf{k}'\beta}\rangle = \delta_{\mathbf{k},\mathbf{k}'}G^{\alpha\beta}(\mathbf{k})$, each contraction under the momentum conservation constraint $\mathbf{k}_1+\mathbf{k}_3 = \mathbf{k}_2+\mathbf{k}_4$ yields the following:
 
 | Contracted pair | Channel | Constraint | Remaining bilinear |
 |:------:|:--:|:--------:|:----------:|
@@ -141,10 +141,10 @@ $$\boxed{\Sigma^{\alpha\beta}(\mathbf{q}) = \frac{1}{2N}\sum_{\mathbf{k}}\sum_{\
 -\widetilde{V}^{\mu\beta\alpha\nu}(\mathbf{k},\mathbf{q},\mathbf{q})
 -\widetilde{V}^{\alpha\nu\mu\beta}(\mathbf{q},\mathbf{k},\mathbf{k})
 }_{\text{Fock}}
-\Bigr]\rho^{\mu\nu}(\mathbf{k})}$$
+\Bigr]G^{\mu\nu}(\mathbf{k})}$$
 
 where:
-- **Hartree terms**: from same-side contractions; the three-momentum kernel is evaluated with the first two or last two momentum slots equal ($\mathbf{k},\mathbf{k}$ or $\mathbf{q},\mathbf{q}$), and summed over the density matrix $\rho^{\mu\nu}(\mathbf{k})$;
+- **Hartree terms**: from same-side contractions; the three-momentum kernel is evaluated with the first two or last two momentum slots equal ($\mathbf{k},\mathbf{k}$ or $\mathbf{q},\mathbf{q}$), and summed over the one-body Green's function $G^{\mu\nu}(\mathbf{k})$;
 - **Fock terms**: from cross-side contractions; the kernel is evaluated with the last two or first and third momentum slots equal, carrying a minus sign.
 
 The two Hartree terms and two Fock terms are each related by the particle-exchange symmetry of the Coulomb integral $V^{abcd}_{ijkl} = V^{cdab}_{klij}$ (and exist independently in the fully general case).
@@ -165,11 +165,11 @@ The original four-body problem depending on three independent momenta is reduced
 
 Self-consistent iteration procedure:
 
-1. Initialize $\rho^{\alpha\beta}(\mathbf{k})$ (from the occupied states of $T(\mathbf{k})$ or randomly)
+1. Initialize $G^{\alpha\beta}(\mathbf{k})$ (from the occupied states of $T(\mathbf{k})$ or randomly)
 2. Compute the self-energy $\Sigma(\mathbf{k})$ and construct $H^{\text{eff}}(\mathbf{k})$
 3. Diagonalize $H^{\text{eff}}(\mathbf{k})$: $H^{\text{eff}}(\mathbf{k})\,|\psi_{n\mathbf{k}}\rangle = \varepsilon_{n\mathbf{k}}\,|\psi_{n\mathbf{k}}\rangle$
-4. Update the density matrix according to occupation numbers (step function at $T=0$ or Fermi-Dirac at finite temperature): $\rho^{\alpha\beta}(\mathbf{k}) = \sum_n f_{n\mathbf{k}}\,\psi^*_{n\alpha}(\mathbf{k})\,\psi_{n\beta}(\mathbf{k})$
-5. Mix old and new density matrices, return to step 2, and repeat until convergence
+4. Update the one-body Green's function according to occupation numbers (step function at $T=0$ or Fermi-Dirac at finite temperature): $G^{\alpha\beta}(\mathbf{k}) = \sum_n f_{n\mathbf{k}}\,\psi^*_{n\alpha}(\mathbf{k})\,\psi_{n\beta}(\mathbf{k})$
+5. Mix old and new $G(\mathbf{k})$, return to step 2, and repeat until convergence
 
 ---
 
@@ -189,21 +189,21 @@ The self-energy simplifies accordingly:
 
 **Hartree** ($\mathbf{k}$-independent):
 
-$$\Sigma_H^{\alpha\beta} = \sum_{\mu\nu}\widetilde{W}^{\mu\nu\alpha\beta}(\mathbf{0})\,\bar{\rho}^{\mu\nu}
-= \sum_{\mu\nu}\widetilde{W}^{\alpha\beta\mu\nu}(\mathbf{0})\,\bar{\rho}^{\mu\nu}$$
+$$\Sigma_H^{\alpha\beta} = \sum_{\mu\nu}\widetilde{W}^{\mu\nu\alpha\beta}(\mathbf{0})\,\bar{G}^{\mu\nu}
+= \sum_{\mu\nu}\widetilde{W}^{\alpha\beta\mu\nu}(\mathbf{0})\,\bar{G}^{\mu\nu}$$
 
-where $\bar{\rho}^{\mu\nu} = \frac{1}{N}\sum_\mathbf{k}\rho^{\mu\nu}(\mathbf{k})$ is the real-space on-site density matrix.
+where $\bar{G}^{\mu\nu} = \frac{1}{N}\sum_\mathbf{k}G^{\mu\nu}(\mathbf{k})$ is the real-space on-site one-body Green's function.
 
 **Fock** ($\mathbf{k}$-dependent, FFT-acceleratable):
 
 $$\Sigma_F^{\alpha\beta}(\mathbf{q}) = -\frac{1}{N}\sum_{\mathbf{k}}\sum_{\mu\nu}
 \frac{1}{2}\!\left[\widetilde{W}^{\mu\beta\alpha\nu}(\mathbf{q}-\mathbf{k})
-+\widetilde{W}^{\alpha\nu\mu\beta}(\mathbf{q}-\mathbf{k})\right]\rho^{\mu\nu}(\mathbf{k})$$
++\widetilde{W}^{\alpha\nu\mu\beta}(\mathbf{q}-\mathbf{k})\right]G^{\mu\nu}(\mathbf{k})$$
 
 This is a **convolution** in $\mathbf{k}$-space. By the convolution theorem, it can be transformed into a pointwise product in real space followed by an FFT, reducing the naive $O(N_k^2)$ cost to $O(N_k\log N_k)$:
 
 $$\Sigma_F^{\alpha\beta}(\mathbf{q}) = -\mathcal{F}_{\mathbf{r}\to\mathbf{q}}\!\left[\sum_{\mu\nu}
 \frac{1}{2}\!\left[W^{\mu\beta\alpha\nu}(\mathbf{r})+W^{\alpha\nu\mu\beta}(\mathbf{r})\right]
-\rho^{\mu\nu}(\mathbf{r})\right]$$
+G^{\mu\nu}(\mathbf{r})\right]$$
 
-where $\rho^{\mu\nu}(\mathbf{r}) = \frac{1}{N}\sum_\mathbf{k} e^{-i\mathbf{k}\cdot\mathbf{r}}\rho^{\mu\nu}(\mathbf{k})$ is the real-space density matrix.
+where $G^{\mu\nu}(\mathbf{r}) = \frac{1}{N}\sum_\mathbf{k} e^{-i\mathbf{k}\cdot\mathbf{r}}G^{\mu\nu}(\mathbf{k})$ is the real-space one-body Green's function.
