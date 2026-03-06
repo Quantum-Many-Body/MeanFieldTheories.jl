@@ -206,6 +206,91 @@ function build_Vk(V_r)
     end
 end
 
+"""
+    build_Uk(V_k) -> Function
+
+Return a closure that, given two k-points `k` and `q`, assembles the
+antisymmetrized HF interaction matrix of shape `(d²,d²)`:
+
+    U[α+(β-1)d, μ+(ν-1)d] =  Ṽ^{μναβ}(k,k,q)   [Hartree 1]
+                             + Ṽ^{αβμν}(q,q,k)   [Hartree 2]
+                             - Ṽ^{μβαν}(k,q,q)   [Fock 1]
+                             - Ṽ^{ανμβ}(q,k,k)   [Fock 2]
+
+This is the k-space analogue of the real-space `build_U`, encoding all four
+Wick contraction channels (Theory §4). The row index α+(β-1)*d corresponds
+to Σ^{αβ}(q) and the column index μ+(ν-1)*d corresponds to G^{μν}(k),
+both following Julia's column-major convention (i.e. `vec(M)[α+(β-1)*d] == M[α,β]`).
+
+Once `U_func = build_Uk(V_k)`, the HF self-energy is
+
+    Σ(q) = (1/(2Nk)) Σ_k reshape(U_func(k, q) * vec(G(k)), d, d)
+
+Returns `nothing` if `V_k` is `nothing`.
+"""
+function build_Uk(V_k)
+    V_k === nothing && return nothing
+    return function(k::AbstractVector{<:Real}, q::AbstractVector{<:Real})
+        V1 = V_k(k, k, q)   # Ṽ^{μναβ}(k,k,q): Hartree 1
+        V2 = V_k(q, q, k)   # Ṽ^{αβμν}(q,q,k): Hartree 2
+        V3 = V_k(k, q, q)   # Ṽ^{μβαν}(k,q,q): Fock 1
+        V4 = V_k(q, k, k)   # Ṽ^{ανμβ}(q,k,k): Fock 2
+        d = size(V1, 1)
+        # Assemble B[α,β,μ,ν] = V1[μ,ν,α,β] + V2[α,β,μ,ν] - V3[μ,β,α,ν] - V4[α,ν,μ,β]
+        # via permutedims (permutedims(A,(p1,p2,p3,p4))[i,j,k,l] = A at A's dim pk = index in position k):
+        #   V1[μ,ν,α,β] → permutedims(V1,(3,4,1,2))[α,β,μ,ν]
+        #   V2[α,β,μ,ν] → no permutation
+        #   V3[μ,β,α,ν] → permutedims(V3,(3,2,1,4))[α,β,μ,ν]
+        #   V4[α,ν,μ,β] → permutedims(V4,(1,4,3,2))[α,β,μ,ν]
+        B = permutedims(V1, (3,4,1,2)) .+ V2 .-
+            permutedims(V3, (3,2,1,4)) .- permutedims(V4, (1,4,3,2))
+        # reshape (d,d,d,d) → (d²,d²) column-major: row = α+(β-1)*d, col = μ+(ν-1)*d
+        return reshape(B, d^2, d^2)
+    end
+end
+
+"""
+    build_Wr(V_r) -> NamedTuple
+
+Extract the density-density interaction kernel W^{abcd}(τ) from `V_r`.
+
+For density-density interactions every entry in `V_r` satisfies
+τ1 = τ2 = τ and τ3 = 0, so
+
+    V̄^{abcd}(τ1, τ2, τ3) = W^{abcd}(τ) δ_{τ1,τ2} δ_{τ3,0}
+
+This function re-indexes by the single displacement τ = τ1, collapsing
+the triple (τ,τ,0) to a single key. Returns `(mats, delta)` with the same
+convention as `build_Tr`:
+- `mats::Vector{Array{T,4}}`: one `d×d×d×d` array per unique displacement;
+  `mats[n][a,b,c,d]` = W^{abcd}(delta[n]).
+- `delta::Vector{Vector{Float64}}`: the corresponding displacement vectors.
+
+Errors if any entry in `V_r` does not satisfy τ1 == τ2 and τ3 == 0,
+i.e., if `V_r` is not a density-density interaction table.
+"""
+function build_Wr(V_r)
+    isempty(V_r.mats) && return (mats=Array{Float64,4}[], delta=Vector{Float64}[])
+
+    for (τ1, τ2, τ3) in V_r.taus
+        τ1 == τ2      || error("build_Wr: τ1 ≠ τ2 — not a density-density interaction")
+        all(iszero, τ3) || error("build_Wr: τ3 ≠ 0  — not a density-density interaction")
+    end
+
+    T = eltype(V_r.mats[1])
+    d = size(V_r.mats[1], 1)
+
+    delta = unique([τ1 for (τ1, _, _) in V_r.taus])
+    mats  = [zeros(T, d, d, d, d) for _ in delta]
+
+    for (mat, (τ1, _, _)) in zip(V_r.mats, V_r.taus)
+        idx = findfirst(==(τ1), delta)
+        mats[idx] .+= mat
+    end
+
+    return (mats=mats, delta=delta)
+end
+
 # ──────────────── Green's function utilities ────────────────
 
 """

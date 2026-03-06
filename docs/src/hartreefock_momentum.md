@@ -200,42 +200,127 @@ Self-consistent iteration procedure:
 
 ---
 
-### 6. Special Case: Density-Density Interactions
+### 6. Single-Variable Interactions and FFT Acceleration
 
-For the most common lattice models (Hubbard $U$, nearest-neighbor Coulomb $V$, Hund's coupling, exchange interactions, etc.), the interaction has a "density-density" structure: the Wannier function integral on each side is dominated by a single site, i.e., $i=j$ ($\mathbf{r}_1$-side density localized at site $i$) and $k=l$ ($\mathbf{r}_2$-side density localized at site $k$). In this case,
+The naive evaluation of the HF self-energy (§4) requires a double loop over $\mathbf{k}$ and $\mathbf{q}$, costing $O(N_k^2 d^4)$. A significant reduction to $O(N_k\log N_k)$ is possible whenever $\bar{V}^{abcd}(\boldsymbol{\tau}_1,\boldsymbol{\tau}_2,\boldsymbol{\tau}_3)$ depends on only a **single displacement variable**, i.e., two of the three $\boldsymbol{\tau}$'s are related by equality or vanish. There are three distinct structural cases.
+
+#### 6.1 Case A — Density-Density ($\boldsymbol{\tau}_1=\boldsymbol{\tau}_2=\boldsymbol{\tau},\;\boldsymbol{\tau}_3=\mathbf{0}$)
+
+This is the structure of Hubbard $U$, nearest-neighbor Coulomb $V$, and Hund's coupling: the $\mathbf{r}_1$-side pair $c^\dagger_i c_j$ has $i=j$, and the $\mathbf{r}_2$-side pair $c^\dagger_k c_l$ has $k=l$. In creation-annihilation alternating order this corresponds to operators $(c^\dagger_{\mathbf{R}_1},\, c_{\mathbf{R}_1},\, c^\dagger_{\mathbf{R}_2},\, c_{\mathbf{R}_2})$, giving
 
 $$\bar{V}^{abcd}(\boldsymbol{\tau}_1,\boldsymbol{\tau}_2,\boldsymbol{\tau}_3)
-= W^{abcd}(\boldsymbol{\tau})\,\delta_{\boldsymbol{\tau}_1,\boldsymbol{\tau}_2}\,\delta_{\boldsymbol{\tau}_3,\mathbf{0}}$$
+= W^{abcd}(\boldsymbol{\tau})\,\delta_{\boldsymbol{\tau}_1,\boldsymbol{\tau}_2}\,\delta_{\boldsymbol{\tau}_3,\mathbf{0}}, \qquad
+\boldsymbol{\tau} = \mathbf{R}_1 - \mathbf{R}_2$$
 
-where $\boldsymbol{\tau} = \boldsymbol{\tau}_1 = \boldsymbol{\tau}_2 = \mathbf{R}_i - \mathbf{R}_l$ is the displacement between the two density operators. The three-momentum kernel reduces to a **single-momentum** function:
+The three-momentum kernel collapses to a single-momentum function:
 
-$$\widetilde{V}^{abcd}(\mathbf{k}_1,\mathbf{k}_2,\mathbf{k}_3)
-= \widetilde{W}^{abcd}(\mathbf{k}_2-\mathbf{k}_1)$$
+$$\widetilde{V}^{abcd}(\mathbf{k}_1,\mathbf{k}_2,\mathbf{k}_3) = \widetilde{W}^{abcd}(\mathbf{k}_2-\mathbf{k}_1)$$
 
-The self-energy simplifies accordingly:
+Substituting into the four self-energy channels:
 
-**Hartree** ($\mathbf{k}$-independent):
+| Channel | $\widetilde{V}$ at that channel | Result |
+|---|---|---|
+| Hartree 1: $\widetilde{V}^{\mu\nu\alpha\beta}(k,k,q)$ | $\widetilde{W}^{\mu\nu\alpha\beta}(\mathbf{0})$ | **k-independent** |
+| Hartree 2: $\widetilde{V}^{\alpha\beta\mu\nu}(q,q,k)$ | $\widetilde{W}^{\alpha\beta\mu\nu}(\mathbf{0})$ | **k-independent** |
+| Fock 1: $\widetilde{V}^{\mu\beta\alpha\nu}(k,q,q)$ | $\widetilde{W}^{\mu\beta\alpha\nu}(\mathbf{q}-\mathbf{k})$ | **convolution** in $\mathbf{k}$ |
+| Fock 2: $\widetilde{V}^{\alpha\nu\mu\beta}(q,k,k)$ | $\widetilde{W}^{\alpha\nu\mu\beta}(\mathbf{k}-\mathbf{q})$ | **convolution** in $\mathbf{k}$ |
 
-$$\Sigma_H^{\alpha\beta} = \sum_{\mu\nu}\widetilde{W}^{\mu\nu\alpha\beta}(\mathbf{0})\,\bar{G}^{\mu\nu}
-= \sum_{\mu\nu}\widetilde{W}^{\alpha\beta\mu\nu}(\mathbf{0})\,\bar{G}^{\mu\nu}$$
+**Hartree** ($\mathbf{q}$-independent):
 
-where $\bar{G}^{\mu\nu} = \frac{1}{N}\sum_\mathbf{k}G^{\mu\nu}(\mathbf{k})$ is the real-space on-site one-body Green's function.
+$$\Sigma_H^{\alpha\beta} = \frac{1}{2}\sum_{\mu\nu}\left[\widetilde{W}^{\mu\nu\alpha\beta}(\mathbf{0})+\widetilde{W}^{\alpha\beta\mu\nu}(\mathbf{0})\right]\bar{G}^{\mu\nu}$$
 
-**Fock** ($\mathbf{k}$-dependent, FFT-acceleratable):
+where $\bar{G}^{\mu\nu} = \frac{1}{N}\sum_\mathbf{k}G^{\mu\nu}(\mathbf{k}) = G^{\mu\nu}(\mathbf{r}=\mathbf{0})$ is the on-site Green's function.
 
-$$\Sigma_F^{\alpha\beta}(\mathbf{q}) = -\frac{1}{N}\sum_{\mathbf{k}}\sum_{\mu\nu}
-\frac{1}{2}\!\left[\widetilde{W}^{\mu\beta\alpha\nu}(\mathbf{q}-\mathbf{k})
-+\widetilde{W}^{\alpha\nu\mu\beta}(\mathbf{q}-\mathbf{k})\right]G^{\mu\nu}(\mathbf{k})$$
+**Fock** (FFT-acceleratable via convolution theorem):
 
-This is a **convolution** in $\mathbf{k}$-space. By the convolution theorem, it can be transformed into a pointwise product in real space followed by an FFT, reducing the naive $O(N_k^2)$ cost to $O(N_k\log N_k)$:
+$$\Sigma_F^{\alpha\beta}(\mathbf{q}) = -\mathcal{F}_{\mathbf{r}\to\mathbf{q}}\!\left[\frac{1}{2}\sum_{\mu\nu}\left[W^{\mu\beta\alpha\nu}(\mathbf{r})+W^{\alpha\nu\mu\beta}(\mathbf{r})\right]G^{\mu\nu}(\mathbf{r})\right]$$
 
-$$\Sigma_F^{\alpha\beta}(\mathbf{q}) = -\mathcal{F}_{\mathbf{r}\to\mathbf{q}}\!\left[\sum_{\mu\nu}
-\frac{1}{2}\!\left[W^{\mu\beta\alpha\nu}(\mathbf{r})+W^{\alpha\nu\mu\beta}(\mathbf{r})\right]
-G^{\mu\nu}(\mathbf{r})\right]$$
+Real-space kernel: $\boldsymbol{W}(\mathbf{r})\cdot\boldsymbol{G}(\mathbf{r})$ (pointwise product, then FFT).
 
-where $\mathbf{r}$ runs over all $N$ lattice sites, $W^{abcd}(\mathbf{r})$ is the real-space interaction kernel (the displacement between the two density operators, i.e. $\mathbf{r} = \mathbf{R}_i - \mathbf{R}_l = \boldsymbol{\tau}$ from above), and $G^{\mu\nu}(\mathbf{r}) = \frac{1}{N}\sum_\mathbf{k} e^{-i\mathbf{k}\cdot\mathbf{r}}G^{\mu\nu}(\mathbf{k})$ is the real-space one-body Green's function.
+---
 
-Note that $W(\mathbf{r})$ is defined as an $N$-point array over all lattice sites; short-ranged interactions simply set most entries to zero (e.g. for on-site Hubbard $U$, only $W(\mathbf{r}=\mathbf{0})\neq 0$). The FFT operates on the full $N$-point array regardless of sparsity. A sparse $W(\mathbf{r})$ produces a slowly-varying $\widetilde{W}(\mathbf{q})$ — in the Hubbard case $\widetilde{W}(\mathbf{q})=U$ is constant, so the Fock self-energy $\Sigma_F(\mathbf{q}) = -U\,G(\mathbf{r}=\mathbf{0})$ is momentum-independent, consistent with the locality of the on-site interaction.
+#### 6.2 Case B — Exchange-Type ($\boldsymbol{\tau}_1=\mathbf{0},\;\boldsymbol{\tau}_2=\boldsymbol{\tau}_3=\boldsymbol{\tau}$)
+
+This structure arises from operators in creation-annihilation alternating order of the form $(c^\dagger_{\mathbf{R}_1},\, c_{\mathbf{R}_2},\, c^\dagger_{\mathbf{R}_2},\, c_{\mathbf{R}_1})$, i.e., $\boldsymbol{\tau}_1 = \mathbf{R}_1-\mathbf{R}_1=\mathbf{0}$ and $\boldsymbol{\tau}_2=\boldsymbol{\tau}_3=\mathbf{R}_2-\mathbf{R}_1$:
+
+$$\bar{V}^{abcd}(\boldsymbol{\tau}_1,\boldsymbol{\tau}_2,\boldsymbol{\tau}_3)
+= W^{abcd}(\boldsymbol{\tau})\,\delta_{\boldsymbol{\tau}_1,\mathbf{0}}\,\delta_{\boldsymbol{\tau}_2,\boldsymbol{\tau}_3}$$
+
+$$\widetilde{V}^{abcd}(\mathbf{k}_1,\mathbf{k}_2,\mathbf{k}_3) = \widetilde{W}^{abcd}(\mathbf{k}_2-\mathbf{k}_3)$$
+
+The channel structure is the complement of Case A:
+
+| Channel | Result |
+|---|---|
+| Hartree 1: $\widetilde{V}^{\mu\nu\alpha\beta}(k,k,q)$ | $\widetilde{W}^{\mu\nu\alpha\beta}(\mathbf{k}-\mathbf{q})$ — **convolution** |
+| Hartree 2: $\widetilde{V}^{\alpha\beta\mu\nu}(q,q,k)$ | $\widetilde{W}^{\alpha\beta\mu\nu}(\mathbf{q}-\mathbf{k})$ — **convolution** |
+| Fock 1: $\widetilde{V}^{\mu\beta\alpha\nu}(k,q,q)$ | $\widetilde{W}^{\mu\beta\alpha\nu}(\mathbf{0})$ — **k-independent** |
+| Fock 2: $\widetilde{V}^{\alpha\nu\mu\beta}(q,k,k)$ | $\widetilde{W}^{\alpha\nu\mu\beta}(\mathbf{0})$ — **k-independent** |
+
+**Hartree** (FFT-acceleratable):
+
+$$\Sigma_H^{\alpha\beta}(\mathbf{q}) = \frac{1}{2N}\sum_{\mathbf{k}}\sum_{\mu\nu}\left[\widetilde{W}^{\mu\nu\alpha\beta}(\mathbf{k}-\mathbf{q})+\widetilde{W}^{\alpha\beta\mu\nu}(\mathbf{q}-\mathbf{k})\right]G^{\mu\nu}(\mathbf{k})$$
+
+$$= \mathcal{F}_{\mathbf{r}\to\mathbf{q}}\!\left[\frac{1}{2}\sum_{\mu\nu}\left[W^{\mu\nu\alpha\beta}(-\mathbf{r})+W^{\alpha\beta\mu\nu}(\mathbf{r})\right]G^{\mu\nu}(\mathbf{r})\right]$$
+
+Real-space kernel: $\boldsymbol{W}(-\mathbf{r})\cdot\boldsymbol{G}(\mathbf{r})$.
+
+**Fock** ($\mathbf{q}$-independent):
+
+$$\Sigma_F^{\alpha\beta} = -\frac{1}{2}\sum_{\mu\nu}\left[\widetilde{W}^{\mu\beta\alpha\nu}(\mathbf{0})+\widetilde{W}^{\alpha\nu\mu\beta}(\mathbf{0})\right]\bar{G}^{\mu\nu}$$
+
+---
+
+#### 6.3 Case C — Pair-Hopping ($\boldsymbol{\tau}_1=\boldsymbol{\tau}_3=\boldsymbol{\tau},\;\boldsymbol{\tau}_2=\mathbf{0}$)
+
+This structure arises for pair-hopping interactions, e.g., operators in creation-annihilation alternating order of the form $(c^\dagger_{\mathbf{R}_1},\, c_{\mathbf{R}_2},\, c^\dagger_{\mathbf{R}_1},\, c_{\mathbf{R}_2})$, giving $\boldsymbol{\tau}_1=\boldsymbol{\tau}_3=\mathbf{R}_1-\mathbf{R}_2$ and $\boldsymbol{\tau}_2=\mathbf{0}$:
+
+$$\bar{V}^{abcd}(\boldsymbol{\tau}_1,\boldsymbol{\tau}_2,\boldsymbol{\tau}_3)
+= W^{abcd}(\boldsymbol{\tau})\,\delta_{\boldsymbol{\tau}_1,\boldsymbol{\tau}_3}\,\delta_{\boldsymbol{\tau}_2,\mathbf{0}}$$
+
+$$\widetilde{V}^{abcd}(\mathbf{k}_1,\mathbf{k}_2,\mathbf{k}_3) = \widetilde{W}^{abcd}(-(\mathbf{k}_1+\mathbf{k}_3)) = \widetilde{W}^{abcd}(\mathbf{k}_2-\mathbf{k}_4)$$
+
+where the second equality uses momentum conservation $\mathbf{k}_1+\mathbf{k}_3=\mathbf{k}_2+\mathbf{k}_4$. All four channels now depend on $\mathbf{k}+\mathbf{q}$:
+
+| Channel | Result |
+|---|---|
+| Hartree 1: $\widetilde{V}^{\mu\nu\alpha\beta}(k,k,q)$ | $\widetilde{W}^{\mu\nu\alpha\beta}(-(\mathbf{k}+\mathbf{q}))$ — **cross-correlation** |
+| Hartree 2: $\widetilde{V}^{\alpha\beta\mu\nu}(q,q,k)$ | $\widetilde{W}^{\alpha\beta\mu\nu}(-(\mathbf{q}+\mathbf{k}))$ — **cross-correlation** |
+| Fock 1: $\widetilde{V}^{\mu\beta\alpha\nu}(k,q,q)$ | $\widetilde{W}^{\mu\beta\alpha\nu}(-(\mathbf{k}+\mathbf{q}))$ — **cross-correlation** |
+| Fock 2: $\widetilde{V}^{\alpha\nu\mu\beta}(q,k,k)$ | $\widetilde{W}^{\alpha\nu\mu\beta}(-(\mathbf{q}+\mathbf{k}))$ — **cross-correlation** |
+
+The full self-energy is:
+
+$$\Sigma^{\alpha\beta}(\mathbf{q}) = \frac{1}{2N}\sum_{\mathbf{k}}\sum_{\mu\nu}
+\left[\widetilde{W}^{\mu\nu\alpha\beta}+\widetilde{W}^{\alpha\beta\mu\nu}
+-\widetilde{W}^{\mu\beta\alpha\nu}-\widetilde{W}^{\alpha\nu\mu\beta}\right](-(\mathbf{k}+\mathbf{q}))\,G^{\mu\nu}(\mathbf{k})$$
+
+The sum $\sum_\mathbf{k}\widetilde{W}(\mathbf{k}+\mathbf{q})\,G(\mathbf{k})$ is a **cross-correlation**. By substituting $\mathbf{k}'=\mathbf{k}+\mathbf{q}$ and applying the convolution theorem:
+
+$$\frac{1}{N}\sum_{\mathbf{k}}\widetilde{W}(\mathbf{k}+\mathbf{q})\,G(\mathbf{k}) = \mathcal{F}_{\mathbf{r}\to\mathbf{q}}\!\left[W(\mathbf{r})\cdot G(-\mathbf{r})\right]$$
+
+Therefore:
+
+$$\Sigma^{\alpha\beta}(\mathbf{q}) = \frac{1}{2}\mathcal{F}_{\mathbf{r}\to\mathbf{q}}\!\left[\sum_{\mu\nu}
+\left[W^{\mu\nu\alpha\beta}(\mathbf{r})+W^{\alpha\beta\mu\nu}(\mathbf{r})
+-W^{\mu\beta\alpha\nu}(\mathbf{r})-W^{\alpha\nu\mu\beta}(\mathbf{r})\right]
+G^{\mu\nu}(-\mathbf{r})\right]$$
+
+Real-space kernel: $\boldsymbol{W}(\mathbf{r})\cdot\boldsymbol{G}(-\mathbf{r})$ (pointwise product with time-reversed Green's function, then FFT).
+
+---
+
+#### 6.4 Summary
+
+The three FFT-acceleratable cases are distinguished by which $\boldsymbol{\tau}$ indices coincide:
+
+| Case | $\boldsymbol{\tau}$ structure | $\widetilde{V}$ argument | Hartree | Fock | Real-space |
+|---|---|---|---|---|---|
+| **A** density-density | $\tau_1=\tau_2=\tau,\;\tau_3=0$ | $\mathbf{k}_2-\mathbf{k}_1$ | $\widetilde{W}(\mathbf{0})\bar{G}$ | $W(\mathbf{r})\cdot G(\mathbf{r})$ via FFT | $W\cdot G$ |
+| **B** exchange-type | $\tau_1=0,\;\tau_2=\tau_3=\tau$ | $\mathbf{k}_2-\mathbf{k}_3$ | $W(-\mathbf{r})\cdot G(\mathbf{r})$ via FFT | $\widetilde{W}(\mathbf{0})\bar{G}$ | $W(-\cdot)\cdot G$ |
+| **C** pair-hopping | $\tau_1=\tau_3=\tau,\;\tau_2=0$ | $-(\mathbf{k}_1+\mathbf{k}_3)$ | $W(\mathbf{r})\cdot G(-\mathbf{r})$ via FFT | $W(\mathbf{r})\cdot G(-\mathbf{r})$ via FFT | $W\cdot G(-\cdot)$ |
+
+All three cases reduce the $O(N_k^2 d^4)$ direct summation to $O(N_k\log N_k)$. Note that Case A and Case B are related by swapping $\mathbf{r}\leftrightarrow-\mathbf{r}$ (i.e., the kernel $W(-\mathbf{r})$ is just the interaction evaluated at reversed displacement), and Case C uses the time-reversed Green's function $G(-\mathbf{r})$ instead. Any interaction that does not fall into one of these three cases requires the full three-momentum evaluation via `build_Uk` at $O(N_k^2 d^4)$ cost.
 
 ---
 
@@ -253,15 +338,21 @@ Returns a precomputed `Array{ComplexF64, 3}` of shape $(N_k, d, d)$.
 
 ### 2. Preprocessing: Interaction Term
 
-**`build_Vr(dofs, lattice, ops)`** — Parses two-body operators and builds the real-space interaction table $\bar{V}^{abcd}(\boldsymbol{\tau}_1, \boldsymbol{\tau}_2, \boldsymbol{\tau}_3)$ as a sparse entry list. For density-density interactions all entries satisfy $\boldsymbol{\tau}_1 = \boldsymbol{\tau}_2$ and $\boldsymbol{\tau}_3 = \mathbf{0}$; this structure is detected downstream to select the FFT convolution path.
+**`build_Vr(dofs, ops, irvec)`** — Parses two-body operators and builds the real-space interaction table $\bar{V}^{abcd}(\boldsymbol{\tau}_1, \boldsymbol{\tau}_2, \boldsymbol{\tau}_3)$. Returns one $d\times d\times d\times d$ array per unique $(\boldsymbol{\tau}_1,\boldsymbol{\tau}_2,\boldsymbol{\tau}_3)$ triple.
 
-**`build_Vk(V_r, kgrid)`** — Fourier-transforms $\bar{V}(\boldsymbol{\tau}_1, \boldsymbol{\tau}_2, \boldsymbol{\tau}_3)$ to the three-momentum kernel $\widetilde{V}(\mathbf{k}_1, \mathbf{k}_2, \mathbf{k}_3)$, returned as a closure evaluated on demand. Only needed for the general (non-density-density) path.
+**`build_Wr(V_r)`** — Extracts the single-displacement kernel $W^{abcd}(\boldsymbol{\tau})$ for Case A (density-density). Validates $\boldsymbol{\tau}_1=\boldsymbol{\tau}_2$ and $\boldsymbol{\tau}_3=\mathbf{0}$; returns `(mats, delta)` with the same convention as `build_Tr`.
+
+**`build_Vk(V_r)`** — Returns a closure `(k1, k2, k3) -> Array{ComplexF64,4}` for the three-momentum kernel $\widetilde{V}(\mathbf{k}_1,\mathbf{k}_2,\mathbf{k}_3)$. Only needed for the general path (Case not A/B/C).
+
+**`build_Uk(V_k)`** — Returns a closure `(k, q) -> Matrix{ComplexF64}` of shape $(d^2\times d^2)$ assembling the antisymmetrized HF matrix from all four Wick channels (Theory §4). Used in the general path.
 
 ### 3. Self-Consistent Field Iteration
 
-**`build_heff_k!(H_k, T_k, V_r, G_k, G_r, kgrid)`** — Builds $H^\text{eff}(\mathbf{q}) = T(\mathbf{q}) + \Sigma(\mathbf{q})$ in-place. Automatically selects between:
-- **Density-density path** (Theory §6): $O(N_k \log N_k)$ via FFT convolution.
-- **General path** (Theory §4): $O(N_k^2 d^4)$ direct summation using $\widetilde{V}$ from `build_Vk`.
+**`build_heff_k!(H_k, T_k, V_r, G_k, G_r, kgrid)`** — Builds $H^\text{eff}(\mathbf{q}) = T(\mathbf{q}) + \Sigma(\mathbf{q})$ in-place. Automatically detects the $\boldsymbol{\tau}$ structure of `V_r` and selects the appropriate path:
+- **Case A** (Theory §6.1): $O(N_k \log N_k)$, FFT with $W(\mathbf{r})\cdot G(\mathbf{r})$.
+- **Case B** (Theory §6.2): $O(N_k \log N_k)$, FFT with $W(-\mathbf{r})\cdot G(\mathbf{r})$.
+- **Case C** (Theory §6.3): $O(N_k \log N_k)$, FFT with $W(\mathbf{r})\cdot G(-\mathbf{r})$.
+- **General path** (Theory §4): $O(N_k^2 d^4)$, direct summation via `build_Uk`.
 
 **`solve_hfk(dofs, lattice, onebody, twobody, n_electrons)`** — Public entry point. Runs the full SCF loop described in Theory §5 and returns a `NamedTuple` with fields `G_k`, `G_r`, `eigenvalues`, `eigenvectors`, `energies` (band / interaction / total), `mu`, `ncond`, `kgrid`, `converged`, `iterations`, and `residual`.
 
