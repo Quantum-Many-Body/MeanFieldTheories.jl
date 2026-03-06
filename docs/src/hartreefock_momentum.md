@@ -4,7 +4,7 @@
 
 ### 1. Real-Space Starting Point
 
-Consider the Coulomb interaction Hamiltonian projected onto a Wannier basis, written in **InterAll** form:
+Consider the Coulomb interaction Hamiltonian projected onto a Wannier basis, written in **creation-annihilation alternating order**:
 
 $$H_{\text{int}} = \frac{1}{2}\sum_{ijkl}\sum_{abcd} V^{abcd}_{ijkl}\, c^\dagger_{ia}\,c_{jb}\,c^\dagger_{kc}\,c_{ld}$$
 

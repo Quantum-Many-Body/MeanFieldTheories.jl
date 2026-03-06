@@ -60,94 +60,112 @@ function build_Tr(
     d_int = length(dofs.valid_states)
     if isempty(ops)
         @warn "No operators found"
-        return (mats=Matrix{Float64}[], rvec=Vector{Float64}[])
+        return (mats=Matrix{Float64}[], delta=Vector{Float64}[])
     end
     T = eltype(map(op -> op.value, ops))
 
-    rvec = unique(Vector{Float64}.(irvec))
-    mats = [zeros(T, d_int, d_int) for _ in rvec]
+    delta = unique(Vector{Float64}.(irvec))
+    mats = [zeros(T, d_int, d_int) for _ in delta]
 
     for (op, r) in zip(ops, irvec)
         length(op.ops) == 2 || continue
-        sign, reord = _reorder_to_interall(Vector{FermionOp}(op.ops))
+        sign, reord = _reorder_to_ca_alternating(Vector{FermionOp}(op.ops))
         a = findfirst(==(reord[1].qn), dofs.valid_states)
         b = findfirst(==(reord[2].qn), dofs.valid_states)
-        idx = findfirst(==(Vector{Float64}(r)), rvec)
+        idx = findfirst(==(Vector{Float64}(r)), delta)
         mats[idx][a, b] += sign * op.value
     end
 
-    return (mats=mats, rvec=rvec)
+    return (mats=mats, delta=delta)
 end
 
 """
-    build_Tk(T_r, kgrid) -> Union{Array{ComplexF64, 3}, Nothing}
+    build_Tk(T_r) -> Function
 
-Fourier-transform the real-space hopping table to k-space:
+Return a closure that evaluates the kinetic Hamiltonian at a given k-point:
 
     T_{ab}(k) = Σ_r  T_{ab}(r) · exp(i k · r)
 
-Evaluates at every k-point in `kgrid` and returns a precomputed array of
-shape `(Nk, d_int, d_int)`. Each slice `T_k[k, :, :]` is Hermitian
-(assuming `ops` was generated with `hc=true`).
-
-Returns `nothing` if `T_r.mats` is empty (no hopping terms).
-
 # Arguments
-- `T_r`: Real-space hopping table from `build_Tr` (NamedTuple with `mats` and `rvec`).
-- `kgrid`: k-grid struct providing `k_points` and `nk`.
+- `T_r`: Real-space hopping table from `build_Tr` (NamedTuple with `mats` and `delta`).
+
+# Returns
+A callable `T_func(k)` returning `Matrix{ComplexF64}` of shape `(d_int, d_int)`,
+where `k` is a momentum vector. Returns `nothing` if `T_r.mats` is empty (no hopping
+terms); the caller should skip the kinetic contribution in that case.
 """
-function build_Tk(T_r, kgrid)
+function build_Tk(T_r)
     isempty(T_r.mats) && return nothing
     d_int = size(T_r.mats[1], 1)
-    Nk    = kgrid.nk
-    T_k   = zeros(ComplexF64, Nk, d_int, d_int)
-    for (ki, k) in enumerate(kgrid.k_points)
-        for (mat, r) in zip(T_r.mats, T_r.rvec)
-            @views T_k[ki, :, :] .+= mat .* cis(dot(k, r))
+    return function(k::AbstractVector{<:Real})
+        T = zeros(ComplexF64, d_int, d_int)
+        for (mat, r) in zip(T_r.mats, T_r.delta)
+            T .+= mat .* cis(dot(k, r))
         end
+        return T
     end
-    return T_k
 end
 
 
 # ──────────────── Preprocessing: interaction term ────────────────
 
 """
-    build_Vr(dofs, lattice, ops) -> NamedTuple
+    build_Vr(dofs, ops, irvec) -> NamedTuple
 
 Parse two-body operators and build the real-space interaction table V̄^{abcd}(τ1, τ2, τ3).
 
-Under translational invariance, the full 4-site interaction V^{abcd}_{ijkl} depends
-only on three relative displacements τ1 = R_i - R_l, τ2 = R_j - R_l, τ3 = R_k - R_l.
-For each operator V · c†_ia c_jb c†_kc c_ld, sets τ1, τ2, τ3 from the site positions
-and accumulates V into the sparse table.
-
-The density-density (Hubbard-type) case is automatically handled: when all hoppings
-satisfy R_i = R_k (same site for creation operators), τ1 = τ3 = 0 everywhere, and
-the table degenerates to a single-displacement form W^{abcd}(r = τ2). This is detected
-downstream to select the FFT convolution path instead of direct three-momentum FT.
+Scans `irvec` for unique (τ1,τ2,τ3) triples, then accumulates interaction amplitudes
+into one `d_int×d_int×d_int×d_int` array per unique triple. Non-four-body operators
+in `ops` are silently skipped.
 
 # Arguments
-- `dofs::SystemDofs`: DOFs of one magnetic unit cell.
-- `lattice::Lattice`: Lattice structure providing site positions.
-- `ops`: Two-body operators (4 FermionOp entries).
+- `dofs::SystemDofs`: DOFs of one magnetic unit cell; `d_int = length(dofs.valid_states)`.
+- `ops::Vector{<:Operators}`: Two-body operators in creation-annihilation alternating order (4 FermionOp entries);
+  typically `generate_twobody(...).ops`.
+- `irvec`: Per-operator unit-cell displacements `(τ1, τ2, τ3)` paired one-to-one with
+  `ops`; typically `generate_twobody(...).irvec`.
 
 # Returns
-`NamedTuple (entries, d_int, displacements)` where:
-- `entries`: sparse table of `@NamedTuple{tau1, tau2, tau3, a, b, c, d, val}`
-- `d_int`: internal dimension per unit cell
-- `displacements`: `Vector{Vector{Float64}}` mapping displacement index to real-space vector
+`NamedTuple (mats, taus)` where:
+- `mats::Vector{Array{T,4}}`: one `d_int×d_int×d_int×d_int` array per unique (τ1,τ2,τ3);
+  `mats[n][a,b,c,d]` = V̄^{abcd} for the n-th displacement triple.
+- `taus::Vector{NTuple{3,Vector{Float64}}}`: the corresponding (τ1,τ2,τ3) triples,
+  same order as `mats`.
 
 # Notes
 - Raw V̄ values are stored without antisymmetrization; the HF self-energy
   symmetrization is handled inside `build_heff_k!`.
+- The density-density special case (all τ1=τ3=0) is detected downstream in
+  `build_heff_k!` to select the FFT convolution path.
 """
 function build_Vr(
     dofs::SystemDofs,
-    lattice::Lattice,
-    ops::AbstractVector{<:Operators}
+    ops::AbstractVector{<:Operators},
+    irvec::AbstractVector{<:NTuple{3}}
 )
+    d_int = length(dofs.valid_states)
+    if isempty(ops)
+        @warn "No two-body operators found"
+        return (mats=Array{Float64,4}[], taus=NTuple{3,Vector{Float64}}[])
+    end
 
+    T = eltype(map(op -> op.value, ops))
+
+    taus = unique(NTuple{3,Vector{Float64}}.(irvec))
+    mats = [zeros(T, d_int, d_int, d_int, d_int) for _ in taus]
+
+    for (op, τs) in zip(ops, irvec)
+        length(op.ops) == 4 || continue
+        # ops from generate_twobody are already in creation-annihilation alternating order (c†c c†c)
+        a = qn2linear(dofs, op.ops[1].qn)
+        b = qn2linear(dofs, op.ops[2].qn)
+        c = qn2linear(dofs, op.ops[3].qn)
+        d = qn2linear(dofs, op.ops[4].qn)
+        idx = findfirst(==(NTuple{3,Vector{Float64}}(τs)), taus)
+        mats[idx][a, b, c, d] += op.value
+    end
+
+    return (mats=mats, taus=taus)
 end
 
 """
@@ -175,8 +193,17 @@ of shape `(d_int, d_int, d_int, d_int)`.
 - For density-density interactions (all τ1=τ2, τ3=0 in V_r.entries),
   `build_heff_k!` uses FFT convolution directly from `V_r` without calling this.
 """
-function build_Vk(V_r, kgrid)
-
+function build_Vk(V_r)
+    isempty(V_r.mats) && return nothing
+    d_int = size(V_r.mats[1], 1)
+    return function(k1::AbstractVector{<:Real}, k2::AbstractVector{<:Real}, k3::AbstractVector{<:Real})
+        V = zeros(ComplexF64, d_int, d_int, d_int, d_int)
+        for (mat, (τ1, τ2, τ3)) in zip(V_r.mats, V_r.taus)
+            phase = cis(-dot(k1, τ1) + dot(k2, τ2) - dot(k3, τ3))
+            V .+= mat .* phase
+        end
+        return V
+    end
 end
 
 # ──────────────── Green's function utilities ────────────────

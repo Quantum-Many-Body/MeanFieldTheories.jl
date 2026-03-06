@@ -221,7 +221,7 @@ Operators(U, [cdag(QN(site=1,spin=1)), c(QN(site=1,spin=1)),
               cdag(QN(site=1,spin=2)), c(QN(site=1,spin=2))])
 ```
 
-Operators are stored in the user-supplied order; reordering to canonical InterAll form (c†c c†c …) happens automatically during matrix construction.
+Operators are stored in the user-supplied order; reordering to creation-annihilation alternating order (c†c c†c …) happens automatically during matrix construction.
 
 ### Generating one-body terms
 
@@ -318,7 +318,7 @@ twobody = generate_twobody(dofs, bonds, value; order=(cdag, 1, c, 1, cdag, 2, c,
   any combination of sites, not just one or two.
 
 **Return value:** a NamedTuple `(ops, irvec)`.
-- `ops`: operators already reordered to InterAll format (c†c c†c) with the fermionic
+- `ops`: operators already reordered to creation-annihilation alternating order (c†c c†c) with the fermionic
   sign absorbed into the coefficient.
 - `irvec`: a `Vector{NTuple{3, Vector{Float64}}}`, where each tuple `(τ1, τ2, τ3)`
   gives the three unit-cell displacements that characterize the four-site interaction
@@ -334,7 +334,7 @@ hubbard = generate_twobody(dofs, onsite_bonds,
         (qn1.spin, qn2.spin, qn3.spin, qn4.spin) == (1, 1, 2, 2) ? U : 0.0,
     order = (cdag, 1, c, 1, cdag, 1, c, 1))
 # hubbard is a NamedTuple:
-#   hubbard.ops   → Vector{Operators} in InterAll (c†c c†c) format with fermionic sign absorbed
+#   hubbard.ops   → Vector{Operators} in creation-annihilation alternating order (c†c c†c) with fermionic sign absorbed
 #   hubbard.irvec → Vector{NTuple{3,Vector{Float64}}}; each tuple (τ1,τ2,τ3) gives
 #                   unit-cell displacements of operators 1,2,3 relative to operator 4.
 #                   For onsite Hubbard: all τ = [0.0, 0.0] (all on same site).
@@ -360,7 +360,7 @@ hund = generate_twobody(dofs, onsite_bonds,
         qn1.orbital != qn3.orbital &&
         (qn1.spin, qn2.spin, qn3.spin, qn4.spin) == (1, 2, 2, 1) ? J : 0.0,
     order = (cdag, 1, cdag, 1, c, 1, c, 1))
-# hund.ops   → Vector{Operators} with reordering sign from c†c†cc → c†c c†c InterAll form
+# hund.ops   → Vector{Operators} with reordering sign from c†c†cc → creation-annihilation alternating order (c†c c†c)
 # hund.irvec → all ([0,0],[0,0],[0,0]) since all operators are on the same site
 ```
 
@@ -382,7 +382,7 @@ ring = generate_twobody(dofs, plaquette_bonds,
 #   operator 2: c   at bond.states[4], coord = bond.coordinates[4], icoord = bond.icoordinates[4]
 #   operator 3: c†  at bond.states[3], coord = bond.coordinates[3], icoord = bond.icoordinates[3]
 #   operator 4: c   at bond.states[2], coord = bond.coordinates[2], icoord = bond.icoordinates[2]
-# After InterAll reordering (c†c c†c), τ1,τ2,τ3 are computed from the
+# After reordering to creation-annihilation alternating order (c†c c†c), τ1,τ2,τ3 are computed from the
 # icoordinates of the reordered operators relative to the 4th one.
 # ring.ops   → Vector{Operators} with all four operators on distinct lattice sites
 # ring.irvec → non-trivial (τ1,τ2,τ3) encoding the full 4-site cluster geometry
@@ -398,7 +398,7 @@ Once operator lists are assembled, matrix representations are built by:
 # Full one-body Hamiltonian H[i,j]
 H = build_onebody_matrix(dofs, onebody.ops)
 
-# Full two-body interaction tensor V[i,j,k,l] in InterAll format
+# Full two-body interaction tensor V[i,j,k,l] in creation-annihilation alternating order
 V = build_interaction_tensor(dofs, twobody.ops)
 ```
 
@@ -413,5 +413,5 @@ For mean-field calculations the interaction is more efficiently accessed through
 | `SystemDofs` | Arbitrary DOF names and sizes; `constraint` prunes the state space; nested `sortrule` creates block-diagonal structure for conserved quantum numbers |
 | `Lattice` / `Bond` | Any unit-cell geometry; tiling constructor handles PBC automatically; `icoordinates` carries unit-cell origin information needed for Bloch-space calculations |
 | `generate_onebody` | `delta`-aware value function for direction-dependent coefficients; `hc=true` for automatic Hermitian conjugate; returns `(ops, delta, irvec)` |
-| `generate_twobody` | 1–4 site bonds; `deltas` vector for full cluster geometry; arbitrary operator ordering; returns InterAll operators with `(τ1, τ2, τ3)` displacement metadata |
+| `generate_twobody` | 1–4 site bonds; `deltas` vector for full cluster geometry; arbitrary operator ordering; returns operators in creation-annihilation alternating order with `(τ1, τ2, τ3)` displacement metadata |
 | `build_*` | Sparse matrix/tensor construction; specialized paths in HF solvers avoid dense $N^4$ tensors |

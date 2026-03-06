@@ -253,7 +253,7 @@ end
 @testset "build_interaction_tensor" begin
     dofs = site_spin_system(4)
     # Default ordering: spin slow, site fast
-    # c†_1↑ c_2↑ c†_3↓ c_4↓  (in InterAll c†c c†c format)
+    # c†_1↑ c_2↑ c†_3↓ c_4↓  (in creation-annihilation alternating order)
     qn1 = QN(site=1, spin=1)  # site 1, spin up -> index 1
     qn2 = QN(site=2, spin=1)  # site 2, spin up -> index 2
     qn3 = QN(site=3, spin=2)  # site 3, spin down -> index 7

@@ -43,7 +43,7 @@ function build_T(dofs::SystemDofs, ops::AbstractVector{<:Operators})
     T = typeof(first(onebody).value)
     acc = Dict{Tuple{Int,Int}, T}()
     for op in onebody
-        sign, reord = _reorder_to_interall(Vector{FermionOp}(op.ops))
+        sign, reord = _reorder_to_ca_alternating(Vector{FermionOp}(op.ops))
         i, j = qn2linear(dofs, reord[1].qn), qn2linear(dofs, reord[2].qn)
         _in_same_block(i, j, blocks) || continue
         acc[(i,j)] = get(acc, (i,j), zero(T)) + sign * op.value
@@ -76,7 +76,7 @@ function build_U(dofs::SystemDofs, ops::AbstractVector{<:Operators};
     acc = Dict{Tuple{Int,Int}, T}()
     add!(r, c, v) = (acc[(r,c)] = get(acc, (r,c), zero(T)) + v)
     for op in twobody
-        sign, reord = _reorder_to_interall(Vector{FermionOp}(op.ops))
+        sign, reord = _reorder_to_ca_alternating(Vector{FermionOp}(op.ops))
         i, j, k, l = (qn2linear(dofs, reord[n].qn) for n in 1:4)
         v = sign * op.value
         # Hartree terms

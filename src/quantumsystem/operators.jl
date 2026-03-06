@@ -62,7 +62,7 @@ end
 Represents a product of operators with a coefficient.
 
 Operators are stored in their **original order** (no automatic reordering).
-Reordering to canonical form (InterAll: c†c c†c...) happens when building
+Reordering to canonical form (creation-annihilation alternating order: c†c c†c...) happens when building
 matrices/tensors via `build_onebody_matrix` or `build_interaction_tensor`.
 
 # Type Parameters
@@ -140,18 +140,18 @@ end
 #==================== Reordering Algorithm (Internal) ====================#
 
 """
-    _reorder_to_interall(ops::Vector{<:FermionOp}) -> (sign, reordered)
+    _reorder_to_ca_alternating(ops::Vector{<:FermionOp}) -> (sign, reordered)
 
-Reorder fermion operators to c†c c†c... pattern (InterAll format).
+Reorder fermion operators to c†c c†c... pattern (creation-annihilation alternating order).
 Uses bubble sort with anticommutation sign tracking.
 
 Target pattern: [c†, c, c†, c, ...]
 
 # Returns
 - `sign`: +1 or -1 from fermionic anticommutation
-- `reordered`: Vector of FermionOp in InterAll order
+- `reordered`: Vector of FermionOp in creation-annihilation alternating order
 """
-function _reorder_to_interall(ops::Vector{<:FermionOp})
+function _reorder_to_ca_alternating(ops::Vector{<:FermionOp})
     n = length(ops)
     ops = copy(ops)
     sign = 1
@@ -181,16 +181,16 @@ function _reorder_to_interall(ops::Vector{<:FermionOp})
 end
 
 """
-    _reorder_to_interall_with_positions(ops, positions) -> (sign, reordered_ops, reordered_positions)
+    _reorder_to_ca_alternating_with_positions(ops, positions) -> (sign, reordered_ops, reordered_positions)
 
-Same bubble-sort reordering as `_reorder_to_interall`, but also permutes a parallel
+Same bubble-sort reordering as `_reorder_to_ca_alternating`, but also permutes a parallel
 `positions` vector (one `Vector{Float64}` per operator) so that after reordering,
 `reordered_positions[i]` always corresponds to `reordered_ops[i]`.
 
 Used by `generate_twobody` to track which unit-cell position each operator ends up at
-after reordering to InterAll format.
+after reordering to creation-annihilation alternating order.
 """
-function _reorder_to_interall_with_positions(
+function _reorder_to_ca_alternating_with_positions(
     ops::Vector{<:FermionOp},
     positions::Vector{<:AbstractVector{<:Real}}
 )
@@ -340,10 +340,10 @@ Generate two-body interaction terms from bonds.
 
 # Returns
 `NamedTuple` with two parallel `Vector` fields:
-- `.ops::Vector{Operators}`: operator terms, already reordered to InterAll format
-  (c†c c†c) with the fermionic sign absorbed into the coefficient.
+- `.ops::Vector{Operators}`: operator terms, already reordered to creation-annihilation
+  alternating order (c†c c†c) with the fermionic sign absorbed into the coefficient.
 - `.irvec::Vector{NTuple{3, Vector{Float64}}}`: unit-cell displacements `(τ1, τ2, τ3)`
-  per term in InterAll order, where `τn = icoord(op_n) - icoord(op_4)`.
+  per term in creation-annihilation alternating order, where `τn = icoord(op_n) - icoord(op_4)`.
   For onsite / density-density interactions τ1 = τ3 = 0.
 
 # NOTICE
@@ -415,7 +415,7 @@ function generate_twobody(
         qn_lists = ntuple(i -> qn_at[sites[i]], 4)
 
         # site_icoords[s]: unit-cell lattice vector of bond site s (used to compute
-        # the relative displacements τ1, τ2, τ3 after InterAll reordering).
+        # the relative displacements τ1, τ2, τ3 after reordering to creation-annihilation alternating order).
         site_icoords = [Vector{Float64}(bond.icoordinates[s]) for s in 1:nb]
 
         for qn1 in qn_lists[1], qn2 in qn_lists[2], qn3 in qn_lists[3], qn4 in qn_lists[4]
@@ -428,7 +428,7 @@ function generate_twobody(
 
             # Reorder to c†c c†c format; positions are permuted in lockstep
             # so that reord_pos[i] always corresponds to reord_ops[i].
-            sign, reord_ops, reord_pos = _reorder_to_interall_with_positions(raw_ops, raw_pos)
+            sign, reord_ops, reord_pos = _reorder_to_ca_alternating_with_positions(raw_ops, raw_pos)
 
             # τ_n = unit-cell position of op_n minus unit-cell position of op_4 (reference).
             # Under translational invariance these three relative displacements fully
@@ -466,7 +466,7 @@ function build_onebody_matrix(dofs::SystemDofs, ops::AbstractVector{<:Operators}
         all(o isa FermionOp for o in op.ops) || error("One-body matrix requires FermionOp")
 
         fermion_ops = Vector{FermionOp}(op.ops)
-        sign, reordered = _reorder_to_interall(fermion_ops)
+        sign, reordered = _reorder_to_ca_alternating(fermion_ops)
 
         i = qn2linear(dofs, reordered[1].qn)
         j = qn2linear(dofs, reordered[2].qn)
@@ -485,9 +485,9 @@ end
 
 Build two-body interaction tensor from Operators.
 Each Operators must have exactly 4 FermionOp.
-Operators are reordered to c†c c†c format (InterAll) internally.
+Operators are reordered to creation-annihilation alternating order (c†c c†c) internally.
 
-The tensor V[i,j,k,l] corresponds to c†_i c_j c†_k c_l in InterAll format.
+The tensor V[i,j,k,l] corresponds to c†_i c_j c†_k c_l in creation-annihilation alternating order.
 """
 function build_interaction_tensor(dofs::SystemDofs, ops::AbstractVector{<:Operators})
     isempty(ops) && error("Cannot build tensor from empty operators list")
@@ -501,7 +501,7 @@ function build_interaction_tensor(dofs::SystemDofs, ops::AbstractVector{<:Operat
         all(o isa FermionOp for o in op.ops) || error("Interaction tensor requires FermionOp")
 
         fermion_ops = Vector{FermionOp}(op.ops)
-        sign, reordered = _reorder_to_interall(fermion_ops)
+        sign, reordered = _reorder_to_ca_alternating(fermion_ops)
 
         i = qn2linear(dofs, reordered[1].qn)
         j = qn2linear(dofs, reordered[2].qn)
