@@ -363,10 +363,10 @@ ring = generate_twobody(dofs, plaquette_bonds,
         qn1.spin == qn2.spin == qn3.spin == qn4.spin ? K : 0.0,
     order = (cdag, 1, c, 4, cdag, 3, c, 2))
 # order = (cdag,1, c,4, cdag,3, c,2) means:
-#   operator 1: c†  at bond site 1  (qn1, icoord from bond.icoordinates[1])
-#   operator 2: c   at bond site 4  (qn2, icoord from bond.icoordinates[4])
-#   operator 3: c†  at bond site 3  (qn3, icoord from bond.icoordinates[3])
-#   operator 4: c   at bond site 2  (qn4, icoord from bond.icoordinates[2])
+#   operator 1: c†  at bond.states[1], coord = bond.coordinates[1], icoord = bond.icoordinates[1]
+#   operator 2: c   at bond.states[4], coord = bond.coordinates[4], icoord = bond.icoordinates[4]
+#   operator 3: c†  at bond.states[3], coord = bond.coordinates[3], icoord = bond.icoordinates[3]
+#   operator 4: c   at bond.states[2], coord = bond.coordinates[2], icoord = bond.icoordinates[2]
 # After InterAll reordering (c†c c†c), τ1,τ2,τ3 are computed from the
 # icoordinates of the reordered operators relative to the 4th one.
 # ring.ops   → Vector{Operators} with all four operators on distinct lattice sites
