@@ -50,12 +50,27 @@ dofs.valid_states   # Vector of QuantumNumber, length = 4 × 2 × 3 = 24
 
 Any combination of components is supported — site, spin, orbital, sublattice, valley, layer, and so on — with no upper limit.
 
-A `constraint` function can restrict the state space to a physically relevant subspace:
+A `constraint` function can restrict the state space to a physically relevant subspace.
+Without a constraint the total dimension is the full Cartesian product of all DOF sizes.
+A constraint eliminates combinations that violate a physical rule, reducing the dimension:
 
 ```julia
-# Only keep states with site ≤ 2
-dofs = SystemDofs([Dof(:site, 4), Dof(:spin, 2)],
-    constraint = qn -> qn.site <= 2)
+# No constraint: 4 sites × 2 spins × 2 valleys = 16 states
+dofs_full = SystemDofs([
+    Dof(:site, 4),
+    Dof(:spin,   2, [:up, :down]),
+    Dof(:valley, 2, [:K, :Kprime])
+])
+length(dofs_full.valid_states)   # 16
+
+# Spin-valley locking: ↑ locks to K, ↓ locks to K′ (spin index == valley index)
+# Eliminates mixed combinations → 4 sites × 2 locked (spin, valley) pairs = 8 states
+dofs_locked = SystemDofs([
+    Dof(:site, 4),
+    Dof(:spin,   2, [:up, :down]),
+    Dof(:valley, 2, [:K, :Kprime])
+], constraint = qn -> qn.spin == qn.valley)
+length(dofs_locked.valid_states)  # 8
 ```
 
 ### Sorting and block structure

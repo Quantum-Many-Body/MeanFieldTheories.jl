@@ -174,8 +174,8 @@ function solve_hf(
     block_occupations;
     temperature::Float64 = 0.0,
     max_iter::Int = 1000,
-    tol::Float64 = 1e-6,
-    mix_alpha::Float64 = 0.5,
+    tol::Float64 = 1e-8,
+    mix_alpha::Float64 = 0.3,
     diis_m::Int = 8,
     G_init = nothing,
     ene_cutoff::Float64 = 100.0,
