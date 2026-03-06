@@ -233,9 +233,9 @@ where $\bar{G}^{\mu\nu} = \frac{1}{N}\sum_\mathbf{k}G^{\mu\nu}(\mathbf{k}) = G^{
 
 **Fock** (FFT-acceleratable via convolution theorem):
 
-$$\Sigma_F^{\alpha\beta}(\mathbf{q}) = -\mathcal{F}_{\mathbf{r}\to\mathbf{q}}\!\left[\frac{1}{2}\sum_{\mu\nu}\left[W^{\mu\beta\alpha\nu}(\mathbf{r})+W^{\alpha\nu\mu\beta}(\mathbf{r})\right]G^{\mu\nu}(\mathbf{r})\right]$$
+$$\Sigma_F^{\alpha\beta}(\mathbf{q}) = -\frac{1}{2}\mathcal{F}_{\mathbf{r}\to\mathbf{q}}\!\left[\sum_{\mu\nu}\left[W^{\mu\beta\alpha\nu}(\mathbf{r})+W^{\alpha\nu\mu\beta}(-\mathbf{r})\right]G^{\mu\nu}(\mathbf{r})\right]$$
 
-Real-space kernel: $\boldsymbol{W}(\mathbf{r})\cdot\boldsymbol{G}(\mathbf{r})$ (pointwise product, then FFT).
+Real-space kernel: Fock 1 contributes $W(\mathbf{r})\cdot G(\mathbf{r})$ (standard convolution); Fock 2 contributes $W(-\mathbf{r})\cdot G(\mathbf{r})$ (cross-correlation). They share the same FFT after summing the two $W$ kernels pointwise.
 
 ---
 
@@ -278,7 +278,7 @@ This structure arises for pair-hopping interactions, e.g., operators in creation
 $$\bar{V}^{abcd}(\boldsymbol{\tau}_1,\boldsymbol{\tau}_2,\boldsymbol{\tau}_3)
 = W^{abcd}(\boldsymbol{\tau})\,\delta_{\boldsymbol{\tau}_1,\boldsymbol{\tau}_3}\,\delta_{\boldsymbol{\tau}_2,\mathbf{0}}$$
 
-$$\widetilde{V}^{abcd}(\mathbf{k}_1,\mathbf{k}_2,\mathbf{k}_3) = \widetilde{W}^{abcd}(-(\mathbf{k}_1+\mathbf{k}_3)) = \widetilde{W}^{abcd}(\mathbf{k}_2-\mathbf{k}_4)$$
+$$\widetilde{V}^{abcd}(\mathbf{k}_1,\mathbf{k}_2,\mathbf{k}_3) = \widetilde{W}^{abcd}(-(\mathbf{k}_1+\mathbf{k}_3)) = \widetilde{W}^{abcd}(-(\mathbf{k}_2+\mathbf{k}_4))$$
 
 where the second equality uses momentum conservation $\mathbf{k}_1+\mathbf{k}_3=\mathbf{k}_2+\mathbf{k}_4$. All four channels now depend on $\mathbf{k}+\mathbf{q}$:
 
@@ -292,21 +292,23 @@ where the second equality uses momentum conservation $\mathbf{k}_1+\mathbf{k}_3=
 The full self-energy is:
 
 $$\Sigma^{\alpha\beta}(\mathbf{q}) = \frac{1}{2N}\sum_{\mathbf{k}}\sum_{\mu\nu}
-\left[\widetilde{W}^{\mu\nu\alpha\beta}+\widetilde{W}^{\alpha\beta\mu\nu}
--\widetilde{W}^{\mu\beta\alpha\nu}-\widetilde{W}^{\alpha\nu\mu\beta}\right](-(\mathbf{k}+\mathbf{q}))\,G^{\mu\nu}(\mathbf{k})$$
+\left[\widetilde{W}^{\mu\nu\alpha\beta}(-(\mathbf{k}+\mathbf{q}))+\widetilde{W}^{\alpha\beta\mu\nu}(-(\mathbf{k}+\mathbf{q}))
+-\widetilde{W}^{\mu\beta\alpha\nu}(-(\mathbf{k}+\mathbf{q}))-\widetilde{W}^{\alpha\nu\mu\beta}(-(\mathbf{k}+\mathbf{q}))\right]G^{\mu\nu}(\mathbf{k})$$
 
-The sum $\sum_\mathbf{k}\widetilde{W}(\mathbf{k}+\mathbf{q})\,G(\mathbf{k})$ is a **cross-correlation**. By substituting $\mathbf{k}'=\mathbf{k}+\mathbf{q}$ and applying the convolution theorem:
+Expanding $\widetilde{W}(-(\mathbf{k}+\mathbf{q})) = \sum_\mathbf{r} W(\mathbf{r})\,e^{-i(\mathbf{k}+\mathbf{q})\cdot\mathbf{r}}$ and using $\frac{1}{N}\sum_\mathbf{k}G(\mathbf{k})\,e^{-i\mathbf{k}\cdot\mathbf{r}} = G(\mathbf{r})$:
 
-$$\frac{1}{N}\sum_{\mathbf{k}}\widetilde{W}(\mathbf{k}+\mathbf{q})\,G(\mathbf{k}) = \mathcal{F}_{\mathbf{r}\to\mathbf{q}}\!\left[W(\mathbf{r})\cdot G(-\mathbf{r})\right]$$
+$$\frac{1}{N}\sum_{\mathbf{k}}\widetilde{W}(-(\mathbf{k}+\mathbf{q}))\,G(\mathbf{k})
+= \sum_\mathbf{r} W(\mathbf{r})\,G(\mathbf{r})\,e^{-i\mathbf{q}\cdot\mathbf{r}}
+= \mathcal{F}_{\mathbf{r}\to\mathbf{q}}\!\left[W(-\mathbf{r})\cdot G(-\mathbf{r})\right]$$
 
-Therefore:
+where the last step substitutes $\mathbf{r}\to-\mathbf{r}$. Therefore:
 
 $$\Sigma^{\alpha\beta}(\mathbf{q}) = \frac{1}{2}\mathcal{F}_{\mathbf{r}\to\mathbf{q}}\!\left[\sum_{\mu\nu}
-\left[W^{\mu\nu\alpha\beta}(\mathbf{r})+W^{\alpha\beta\mu\nu}(\mathbf{r})
--W^{\mu\beta\alpha\nu}(\mathbf{r})-W^{\alpha\nu\mu\beta}(\mathbf{r})\right]
+\left[W^{\mu\nu\alpha\beta}(-\mathbf{r})+W^{\alpha\beta\mu\nu}(-\mathbf{r})
+-W^{\mu\beta\alpha\nu}(-\mathbf{r})-W^{\alpha\nu\mu\beta}(-\mathbf{r})\right]
 G^{\mu\nu}(-\mathbf{r})\right]$$
 
-Real-space kernel: $\boldsymbol{W}(\mathbf{r})\cdot\boldsymbol{G}(-\mathbf{r})$ (pointwise product with time-reversed Green's function, then FFT).
+Real-space kernel: $\boldsymbol{W}(-\mathbf{r})\cdot\boldsymbol{G}(-\mathbf{r})$ (pointwise product of interaction and time-reversed Green's function, both evaluated at $-\mathbf{r}$, then FFT).
 
 ---
 
@@ -316,11 +318,11 @@ The three FFT-acceleratable cases are distinguished by which $\boldsymbol{\tau}$
 
 | Case | $\boldsymbol{\tau}$ structure | $\widetilde{V}$ argument | Hartree | Fock | Real-space |
 |---|---|---|---|---|---|
-| **A** density-density | $\tau_1=\tau_2=\tau,\;\tau_3=0$ | $\mathbf{k}_2-\mathbf{k}_1$ | $\widetilde{W}(\mathbf{0})\bar{G}$ | $W(\mathbf{r})\cdot G(\mathbf{r})$ via FFT | $W\cdot G$ |
-| **B** exchange-type | $\tau_1=0,\;\tau_2=\tau_3=\tau$ | $\mathbf{k}_2-\mathbf{k}_3$ | $W(-\mathbf{r})\cdot G(\mathbf{r})$ via FFT | $\widetilde{W}(\mathbf{0})\bar{G}$ | $W(-\cdot)\cdot G$ |
-| **C** pair-hopping | $\tau_1=\tau_3=\tau,\;\tau_2=0$ | $-(\mathbf{k}_1+\mathbf{k}_3)$ | $W(\mathbf{r})\cdot G(-\mathbf{r})$ via FFT | $W(\mathbf{r})\cdot G(-\mathbf{r})$ via FFT | $W\cdot G(-\cdot)$ |
+| **A** density-density | $\tau_1=\tau_2=\tau,\;\tau_3=0$ | $\mathbf{k}_2-\mathbf{k}_1$ | $\widetilde{W}(\mathbf{0})\bar{G}$ | $[W(\mathbf{r})+W(-\mathbf{r})]\cdot G(\mathbf{r})$ via FFT | $[W+W(-\cdot)]\cdot G$ |
+| **B** exchange-type | $\tau_1=0,\;\tau_2=\tau_3=\tau$ | $\mathbf{k}_2-\mathbf{k}_3$ | $[W(-\mathbf{r})+W(\mathbf{r})]\cdot G(\mathbf{r})$ via FFT | $\widetilde{W}(\mathbf{0})\bar{G}$ | $[W(-\cdot)+W]\cdot G$ |
+| **C** pair-hopping | $\tau_1=\tau_3=\tau,\;\tau_2=0$ | $-(\mathbf{k}_1+\mathbf{k}_3)$ | $W(-\mathbf{r})\cdot G(-\mathbf{r})$ via FFT | $W(-\mathbf{r})\cdot G(-\mathbf{r})$ via FFT | $W(-\cdot)\cdot G(-\cdot)$ |
 
-All three cases reduce the $O(N_k^2 d^4)$ direct summation to $O(N_k\log N_k)$. Note that Case A and Case B are related by swapping $\mathbf{r}\leftrightarrow-\mathbf{r}$ (i.e., the kernel $W(-\mathbf{r})$ is just the interaction evaluated at reversed displacement), and Case C uses the time-reversed Green's function $G(-\mathbf{r})$ instead. Any interaction that does not fall into one of these three cases requires the full three-momentum evaluation via `build_Uk` at $O(N_k^2 d^4)$ cost.
+All three cases reduce the $O(N_k^2 d^4)$ direct summation to $O(N_k\log N_k)$. In Cases A and B the two sub-channels ($\widetilde{W}(\mathbf{q}-\mathbf{k})$ and $\widetilde{W}(\mathbf{k}-\mathbf{q})$) contribute $W(\mathbf{r})$ and $W(-\mathbf{r})$ respectively, so the combined real-space kernel is $[W(\mathbf{r})+W(-\mathbf{r})]\cdot G(\mathbf{r})$. In Case C all channels give $\widetilde{W}(-(\mathbf{k}+\mathbf{q}))$, which maps to $W(-\mathbf{r})\cdot G(-\mathbf{r})$. Any interaction that does not fall into one of these three cases requires the full three-momentum evaluation via `build_Uk` at $O(N_k^2 d^4)$ cost.
 
 ---
 
@@ -349,9 +351,9 @@ Returns a precomputed `Array{ComplexF64, 3}` of shape $(N_k, d, d)$.
 ### 3. Self-Consistent Field Iteration
 
 **`build_heff_k!(H_k, T_k, V_r, G_k, G_r, kgrid)`** — Builds $H^\text{eff}(\mathbf{q}) = T(\mathbf{q}) + \Sigma(\mathbf{q})$ in-place. Automatically detects the $\boldsymbol{\tau}$ structure of `V_r` and selects the appropriate path:
-- **Case A** (Theory §6.1): $O(N_k \log N_k)$, FFT with $W(\mathbf{r})\cdot G(\mathbf{r})$.
-- **Case B** (Theory §6.2): $O(N_k \log N_k)$, FFT with $W(-\mathbf{r})\cdot G(\mathbf{r})$.
-- **Case C** (Theory §6.3): $O(N_k \log N_k)$, FFT with $W(\mathbf{r})\cdot G(-\mathbf{r})$.
+- **Case A** (Theory §6.1): $O(N_k \log N_k)$, FFT with $[W(\mathbf{r})+W(-\mathbf{r})]\cdot G(\mathbf{r})$.
+- **Case B** (Theory §6.2): $O(N_k \log N_k)$, FFT with $[W(-\mathbf{r})+W(\mathbf{r})]\cdot G(\mathbf{r})$.
+- **Case C** (Theory §6.3): $O(N_k \log N_k)$, FFT with $W(-\mathbf{r})\cdot G(-\mathbf{r})$.
 - **General path** (Theory §4): $O(N_k^2 d^4)$, direct summation via `build_Uk`.
 
 **`solve_hfk(dofs, lattice, onebody, twobody, n_electrons)`** — Public entry point. Runs the full SCF loop described in Theory §5 and returns a `NamedTuple` with fields `G_k`, `G_r`, `eigenvalues`, `eigenvectors`, `energies` (band / interaction / total), `mu`, `ncond`, `kgrid`, `converged`, `iterations`, and `residual`.
