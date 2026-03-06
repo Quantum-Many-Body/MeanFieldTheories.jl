@@ -250,12 +250,12 @@ $$\widetilde{V}^{abcd}(\mathbf{k}_1,\mathbf{k}_2,\mathbf{k}_3) = \widetilde{W}^{
 
 The channel structure is the complement of Case A:
 
-| Channel | Result |
-|---|---|
-| Hartree 1: $\widetilde{V}^{\mu\nu\alpha\beta}(k,k,q)$ | $\widetilde{W}^{\mu\nu\alpha\beta}(\mathbf{k}-\mathbf{q})$ — **convolution** |
-| Hartree 2: $\widetilde{V}^{\alpha\beta\mu\nu}(q,q,k)$ | $\widetilde{W}^{\alpha\beta\mu\nu}(\mathbf{q}-\mathbf{k})$ — **convolution** |
-| Fock 1: $\widetilde{V}^{\mu\beta\alpha\nu}(k,q,q)$ | $\widetilde{W}^{\mu\beta\alpha\nu}(\mathbf{0})$ — **k-independent** |
-| Fock 2: $\widetilde{V}^{\alpha\nu\mu\beta}(q,k,k)$ | $\widetilde{W}^{\alpha\nu\mu\beta}(\mathbf{0})$ — **k-independent** |
+| Channel | $\widetilde{V}$ at that channel | Result |
+|---|---|---|
+| Hartree 1: $\widetilde{V}^{\mu\nu\alpha\beta}(k,k,q)$ | $\widetilde{W}^{\mu\nu\alpha\beta}(\mathbf{k}-\mathbf{q})$ | **convolution** in $\mathbf{k}$ |
+| Hartree 2: $\widetilde{V}^{\alpha\beta\mu\nu}(q,q,k)$ | $\widetilde{W}^{\alpha\beta\mu\nu}(\mathbf{q}-\mathbf{k})$ | **convolution** in $\mathbf{k}$ |
+| Fock 1: $\widetilde{V}^{\mu\beta\alpha\nu}(k,q,q)$ | $\widetilde{W}^{\mu\beta\alpha\nu}(\mathbf{0})$ | **k-independent** |
+| Fock 2: $\widetilde{V}^{\alpha\nu\mu\beta}(q,k,k)$ | $\widetilde{W}^{\alpha\nu\mu\beta}(\mathbf{0})$ | **k-independent** |
 
 **Hartree** (FFT-acceleratable):
 
@@ -282,12 +282,12 @@ $$\widetilde{V}^{abcd}(\mathbf{k}_1,\mathbf{k}_2,\mathbf{k}_3) = \widetilde{W}^{
 
 where the second equality uses momentum conservation $\mathbf{k}_1+\mathbf{k}_3=\mathbf{k}_2+\mathbf{k}_4$. All four channels now depend on $\mathbf{k}+\mathbf{q}$:
 
-| Channel | Result |
-|---|---|
-| Hartree 1: $\widetilde{V}^{\mu\nu\alpha\beta}(k,k,q)$ | $\widetilde{W}^{\mu\nu\alpha\beta}(-(\mathbf{k}+\mathbf{q}))$ — **cross-correlation** |
-| Hartree 2: $\widetilde{V}^{\alpha\beta\mu\nu}(q,q,k)$ | $\widetilde{W}^{\alpha\beta\mu\nu}(-(\mathbf{q}+\mathbf{k}))$ — **cross-correlation** |
-| Fock 1: $\widetilde{V}^{\mu\beta\alpha\nu}(k,q,q)$ | $\widetilde{W}^{\mu\beta\alpha\nu}(-(\mathbf{k}+\mathbf{q}))$ — **cross-correlation** |
-| Fock 2: $\widetilde{V}^{\alpha\nu\mu\beta}(q,k,k)$ | $\widetilde{W}^{\alpha\nu\mu\beta}(-(\mathbf{q}+\mathbf{k}))$ — **cross-correlation** |
+| Channel | $\widetilde{V}$ at that channel | Result |
+|---|---|---|
+| Hartree 1: $\widetilde{V}^{\mu\nu\alpha\beta}(k,k,q)$ | $\widetilde{W}^{\mu\nu\alpha\beta}(-(\mathbf{k}+\mathbf{q}))$ | **cross-correlation** in $\mathbf{k}$ |
+| Hartree 2: $\widetilde{V}^{\alpha\beta\mu\nu}(q,q,k)$ | $\widetilde{W}^{\alpha\beta\mu\nu}(-(\mathbf{q}+\mathbf{k}))$ | **cross-correlation** in $\mathbf{k}$ |
+| Fock 1: $\widetilde{V}^{\mu\beta\alpha\nu}(k,q,q)$ | $\widetilde{W}^{\mu\beta\alpha\nu}(-(\mathbf{k}+\mathbf{q}))$ | **cross-correlation** in $\mathbf{k}$ |
+| Fock 2: $\widetilde{V}^{\alpha\nu\mu\beta}(q,k,k)$ | $\widetilde{W}^{\alpha\nu\mu\beta}(-(\mathbf{q}+\mathbf{k}))$ | **cross-correlation** in $\mathbf{k}$ |
 
 The full self-energy is:
 
