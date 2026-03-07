@@ -8,7 +8,7 @@ See documents: https://ZongYongyue.github.io/MeanFieldTheories.jl
 
 ## Features
 
-- **Fully customizable quantum system** Degrees of freedom (site,, sublattice, spin, orbital, valley, …) are freely defined by the user via `SystemDofs`, with user-specified constraints.
+- **Fully customizable quantum system** Degrees of freedom (site, sublattice, spin, orbital, valley, …) are freely defined by the user via `SystemDofs`, with user-specified constraints.
 
 -  **High flexibility for generating operator representations** DOF index constraints can be applied directly to `generate_onebody` and `generate_twobody` to select only the desired terms on each bond. 
 
