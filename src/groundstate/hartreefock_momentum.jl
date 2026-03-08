@@ -21,7 +21,6 @@ using LinearAlgebra
 using Random
 using Printf
 using Dates
-using FFTW
 
 
 # ──────────────── Preprocessing: kinetic term ────────────────
@@ -249,48 +248,6 @@ function build_Uk(V_k)
     end
 end
 
-"""
-    build_Wr(V_r) -> NamedTuple
-
-Extract the density-density interaction kernel W^{abcd}(τ) from `V_r`.
-
-For density-density interactions every entry in `V_r` satisfies
-τ1 = τ2 = τ and τ3 = 0, so
-
-    V̄^{abcd}(τ1, τ2, τ3) = W^{abcd}(τ) δ_{τ1,τ2} δ_{τ3,0}
-
-This function re-indexes by the single displacement τ = τ1, collapsing
-the triple (τ,τ,0) to a single key. Returns `(mats, delta)` with the same
-convention as `build_Tr`:
-- `mats::Vector{Array{T,4}}`: one `d×d×d×d` array per unique displacement;
-  `mats[n][a,b,c,d]` = W^{abcd}(delta[n]).
-- `delta::Vector{Vector{Float64}}`: the corresponding displacement vectors.
-
-Errors if any entry in `V_r` does not satisfy τ1 == τ2 and τ3 == 0,
-i.e., if `V_r` is not a density-density interaction table.
-"""
-function build_Wr(V_r)
-    isempty(V_r.mats) && return (mats=Array{Float64,4}[], delta=Vector{Float64}[])
-
-    for (τ1, τ2, τ3) in V_r.taus
-        τ1 == τ2      || error("build_Wr: τ1 ≠ τ2 — not a density-density interaction")
-        all(iszero, τ3) || error("build_Wr: τ3 ≠ 0  — not a density-density interaction")
-    end
-
-    T = eltype(V_r.mats[1])
-    d = size(V_r.mats[1], 1)
-
-    delta = unique([τ1 for (τ1, _, _) in V_r.taus])
-    mats  = [zeros(T, d, d, d, d) for _ in delta]
-
-    for (mat, (τ1, _, _)) in zip(V_r.mats, V_r.taus)
-        idx = findfirst(==(τ1), delta)
-        mats[idx] .+= mat
-    end
-
-    return (mats=mats, delta=delta)
-end
-
 # ──────────────── FFT-acceleration kernels ────────────────
 
 """
@@ -380,7 +337,9 @@ Using hermiticity W^{abcd}(-r) = conj(W^{dcba}(r)), one obtains W^{adcb}(-r) = c
     fock.delta[n] = τ (the single displacement τ1=τ2 of the taus triple)
 
 # Returns
-`(hartree, fock)` where `hartree::Array{T,4}` and `fock::(mats, delta)`.
+`(hartree, fock)` where `hartree::Matrix{T}` of shape `(d²,d²)` and
+`fock::(mats=Vector{Matrix{T}}, delta)`. The contraction is
+`reshape(hartree * vec(Ḡ), d, d)` and `reshape(fock.mats[n] * vec(G(r)), d, d)`.
 """
 function build_Wr_A(mats_a, taus_a)
     isempty(mats_a) && return (hartree=nothing, fock=(mats=nothing, delta=nothing))
@@ -397,7 +356,8 @@ function build_Wr_A(mats_a, taus_a)
         fock_mats[idx] .+= permutedims(W, (3,2,1,4)) .+ conj(permutedims(W, (4,1,2,3)))
     end
 
-    return (hartree=hartree, fock=(mats=fock_mats, delta=delta))
+    return (hartree=reshape(hartree, d^2, d^2),
+            fock=(mats=[reshape(m, d^2, d^2) for m in fock_mats], delta=delta))
 end
 
 """
@@ -408,8 +368,10 @@ Assemble the Hartree and Fock real-space kernels for Case B interactions
 
 **Hartree** (FFT, contracted with G^{cd}(r) then transformed to q):
     Σ_H^{ab}(q) = (1/2) FFT_r[ Σ_{cd} [W^{cdab}(-r) + W^{abcd}(r)] G^{cd}(r) ]
-Case B hermiticity: [W^{abcd}(τ)]* = W^{dcba}(τ) (same displacement, cf. Case A).
-Hence W^{cdab}(-r) = conj(W^{dcba}(r)):
+Case B hermiticity: [W^{abcd}(τ)]* = W^{badc}(-τ)  (note: -τ, unlike Case A).
+Derivation of W^{cdab}(-r) = conj(W^{dcba}(r)):
+  substitute a→d,b→c,c→b,d→a in the hermiticity relation:
+  [W^{dcba}(τ)]* = W^{cdab}(-τ)  ⟹  W^{cdab}(-r) = conj(W^{dcba}(r)).
     hartree.mats[n][a,b,c,d] = conj(permutedims(W(r),(4,3,2,1))) + W(r)
                                 ──────────────────────────────────   ──────
                                  W^{cdab}(-r)                        W^{abcd}(r)
@@ -422,7 +384,9 @@ Hence W^{cdab}(-r) = conj(W^{dcba}(r)):
                            W^{cbad}(r)                   W^{adcb}(r)
 
 # Returns
-`(hartree, fock)` where `hartree::(mats, delta)` and `fock::Array{T,4}`.
+`(hartree, fock)` where `hartree::(mats=Vector{Matrix{T}}, delta)` and
+`fock::Matrix{T}` of shape `(d²,d²)`. The contraction is
+`reshape(hartree.mats[n] * vec(G(r)), d, d)` and `reshape(fock * vec(Ḡ), d, d)`.
 """
 function build_Wr_B(mats_b, taus_b)
     isempty(mats_b) && return (hartree=(mats=nothing, delta=nothing), fock=nothing)
@@ -439,23 +403,26 @@ function build_Wr_B(mats_b, taus_b)
         fock .+= permutedims(W, (3,2,1,4)) .+ permutedims(W, (1,4,3,2))
     end
 
-    return (hartree=(mats=hartree_mats, delta=delta), fock=fock)
+    return (hartree=(mats=[reshape(m, d^2, d^2) for m in hartree_mats], delta=delta),
+            fock=reshape(fock, d^2, d^2))
 end
 
 """
     build_Wr_C(mats_c, taus_c) -> NamedTuple
 
-Assemble the combined real-space kernel for Case C interactions
+Assemble the real-space kernels for Case C interactions
 (pair-hopping, τ1=τ3=τ, τ2=0). See Theory §6.3.
 
-For Case C all four channels share the same -(k+q) momentum argument, so Hartree
-and Fock are not separated — the full self-energy is a single FFT:
+The full self-energy is:
 
-    Σ^{ab}(q) = (1/2) FFT_r[ Σ_{cd} K^{ab,cd}(r) · G^{cd}(-r) ]
+    Σ^{ab}(q) = (1/2) Σ_τ Σ_{cd} K^{ab,cd}(τ) · G^{cd}(-τ) · exp(iq·τ)
 
-where all W factors are evaluated at -r (from hermiticity W^{abcd}(-r) = conj(W^{dcba}(r))):
+where K is split into Hartree and Fock channels:
 
-    K(r)[a,b,c,d] = W^{cdab}(-r) + W^{abcd}(-r) - W^{cbad}(-r) - W^{adcb}(-r)
+    K_H(r)[a,b,c,d] = W^{cdab}(-r) + W^{abcd}(-r)    ← Hartree (direct)
+    K_F(r)[a,b,c,d] = W^{cbad}(-r) + W^{adcb}(-r)    ← Fock (exchange, applied with − sign)
+
+Both channels contract with G(-τ) = adjoint(G(τ)), not with Ḡ.
 
 Case C hermiticity: [W^{abcd}(τ)]* = W^{dcba}(-τ), so W^{efgh}(-r) = conj(W^{hgfe}(r)).
 Each term mapped to its source at +r:
@@ -464,132 +431,317 @@ Each term mapped to its source at +r:
     W^{cbad}(-r) = conj(W^{dabc}(r)) = conj(permutedims(W(r),(2,3,4,1)))
     W^{adcb}(-r) = conj(W^{bcda}(r)) = conj(permutedims(W(r),(4,1,2,3)))
 
-Note: the caller must multiply K(r) by G(-r) (not G(r)) before applying FFT.
-
 # Returns
-`(mats, delta)` where `mats[n]` is the combined kernel K(r) at displacement `delta[n] = τ`.
+`(hartree, fock)` where each is `(mats=Vector{Matrix{T}}, delta)`.
+Contraction: `reshape(K * vec(adjoint(G(τ))), d, d)` for both channels;
+the Fock channel is subtracted in `build_heff_k!`.
 """
 function build_Wr_C(mats_c, taus_c)
-    isempty(mats_c) && return (mats=nothing, delta=nothing)
+    isempty(mats_c) && return (hartree=(mats=nothing, delta=nothing),
+                                fock=(mats=nothing, delta=nothing))
     T = ComplexF64
     d = size(mats_c[1], 1)
 
-    delta = unique([τ1 for (τ1, _, _) in taus_c])
-    mats  = [zeros(T, d, d, d, d) for _ in delta]
+    delta        = unique([τ1 for (τ1, _, _) in taus_c])
+    hartree_mats = [zeros(T, d, d, d, d) for _ in delta]
+    fock_mats    = [zeros(T, d, d, d, d) for _ in delta]
 
     for (W, (τ1, _, _)) in zip(mats_c, taus_c)
         idx = findfirst(==(τ1), delta)
-        mats[idx] .+= conj(permutedims(W, (2,1,4,3))) .+
-                       conj(permutedims(W, (4,3,2,1))) .-
-                       conj(permutedims(W, (2,3,4,1))) .-
-                       conj(permutedims(W, (4,1,2,3)))
+        hartree_mats[idx] .+= conj(permutedims(W, (2,1,4,3))) .+
+                               conj(permutedims(W, (4,3,2,1)))
+        fock_mats[idx]    .+= conj(permutedims(W, (2,3,4,1))) .+
+                               conj(permutedims(W, (4,1,2,3)))
     end
 
-    return (mats=mats, delta=delta)
+    return (hartree=(mats=[reshape(m, d^2, d^2) for m in hartree_mats], delta=delta),
+            fock   =(mats=[reshape(m, d^2, d^2) for m in fock_mats],    delta=delta))
+end
+
+# ──────────────── k-point utilities ────────────────
+
+"""
+    build_kpoints(unitcell_vectors, box_size) -> Vector{Vector{Float64}}
+
+Generate the k-point grid for a D-dimensional lattice.
+
+    k = (m1/n1)*b1 + (m2/n2)*b2 + ...  for m_i in 0:n_i-1
+
+where b_i are reciprocal lattice vectors satisfying a_i · b_j = 2π δ_{ij}.
+
+# Arguments
+- `unitcell_vectors::Vector{Vector{Float64}}`: Direct lattice vectors [a1, a2, ...].
+- `box_size::NTuple{D,Int}`: Number of unit cells along each direction.
+"""
+function build_kpoints(
+    unitcell_vectors::Vector{Vector{Float64}},
+    box_size::NTuple{D, Int}
+) where D
+    D == length(unitcell_vectors) ||
+        error("Dimension mismatch: $(length(unitcell_vectors)) vectors for D=$D")
+    A = hcat(unitcell_vectors...)   # D×D, columns = unit cell vectors
+    B = 2π * inv(A)'                # D×D, columns = reciprocal vectors b_i
+    kpoints = Vector{Float64}[]
+    for idx in Iterators.product(ntuple(i -> 0:box_size[i]-1, D)...)
+        k = sum((idx[i] / box_size[i]) .* B[:,i] for i in 1:D)
+        push!(kpoints, k)
+    end
+    return kpoints
 end
 
 # ──────────────── Green's function utilities ────────────────
 
 """
-    initialize_green_k(Nk, d_int; G_init=nothing, rng=Random.default_rng()) -> Array{ComplexF64, 3}
+    initialize_green_k(Nk, d; G_init=nothing, rng=Random.default_rng()) -> Array{ComplexF64, 3}
 
-Initialize the k-space Green's function G[k_idx, a, b] of shape (Nk, d_int, d_int).
+Initialize the k-space Green's function stored as `G[a, b, k_idx]` of shape `(d, d, Nk)`
+(column-major: each `G[:,:,ki]` is a contiguous `d×d` matrix in memory).
 
 If `G_init` is provided, validates shape and Hermiticity at each k and returns it.
 Otherwise fills each G(k) with small random Hermitian perturbation around zero.
 
 # Arguments
 - `Nk::Int`: Number of k-points
-- `d_int::Int`: Internal dimension per unit cell
+- `d::Int`: Internal dimension per unit cell
 
 # Keyword Arguments
-- `G_init`: Pre-initialized G array of shape (Nk, d_int, d_int), or `nothing`
+- `G_init`: Pre-initialized G array of shape `(d, d, Nk)`, or `nothing`
 - `rng`: Random number generator
 
 # Returns
-`Array{ComplexF64, 3}` of shape `(Nk, d_int, d_int)`.
+`Array{ComplexF64, 3}` of shape `(d, d, Nk)`.
 """
 function initialize_green_k(
     Nk::Int,
-    d_int::Int;
+    d::Int;
     G_init = nothing,
     rng::AbstractRNG = Random.default_rng()
 )
-  
+    if G_init !== nothing
+        size(G_init) == (d, d, Nk) ||
+            error("G_init shape $(size(G_init)) ≠ ($d, $d, $Nk)")
+        for k in 1:Nk
+            Gk = @view G_init[:,:,k]
+            norm(Gk - Gk') < 1e-10 || error("G_init[:,:,$k] is not Hermitian")
+        end
+        return ComplexF64.(G_init)
+    end
+    G_k = zeros(ComplexF64, d, d, Nk)
+    for k in 1:Nk
+        H = randn(rng, ComplexF64, d, d)
+        G_k[:,:,k] = (H + H') .* (0.1 / d)
+    end
+    return G_k
 end
 
 """
-    green_k_to_r(G_k, kgrid) -> Array{ComplexF64, 3}
+    green_k_to_tau(G_k, kpoints, taus) -> Vector{Matrix{ComplexF64}}
 
-Transform G_{ab}(k) to real-space G_{ab}(r) via inverse FFT:
+Compute G(τ) at each displacement in `taus` via direct Fourier sum:
 
-    G_{ab}(r) = (1/Nk) Σ_k  G_{ab}(k) · exp(-i k · r)
+    G^{ab}(τ) = (1/Nk) Σ_k  G^{ab}(k) · exp(-i k · τ)
 
 # Arguments
-- `G_k::Array{ComplexF64, 3}`: Shape (Nk, d_int, d_int)
-- `kgrid`: k-grid with grid_shape for multi-dimensional IFFT
-
-# Returns
-`Array{ComplexF64, 3}` of shape (Nk, d_int, d_int), where the first index is
-now a real-space displacement index (same ordering as k-grid by duality).
+- `G_k::Array{ComplexF64, 3}`: Shape `(d, d, Nk)`.
+- `kpoints::Vector{Vector{Float64}}`: k-point list of length Nk.
+- `taus::Vector{Vector{Float64}}`: displacement vectors at which to evaluate G(r).
 """
-function green_k_to_r(G_k::Array{ComplexF64, 3}, kgrid)
-  
+function green_k_to_tau(
+    G_k::Array{ComplexF64, 3},
+    kpoints::Vector{Vector{Float64}},
+    taus::Vector{Vector{Float64}}
+)
+    d = size(G_k, 1)
+    G_taus = [zeros(ComplexF64, d, d) for _ in taus]
+    green_k_to_tau!(G_taus, G_k, kpoints, taus)
+    return G_taus
+end
+
+"""
+    green_k_to_tau!(G_taus, G_k, kpoints, taus)
+
+In-place version of `green_k_to_tau`. Overwrites each matrix in `G_taus`.
+`G_taus` must be a `Vector` of `d×d` matrices (zeroed here before accumulation).
+`G_k` has shape `(d, d, Nk)`; each `G_k[:,:,ki]` is a contiguous `d×d` slice.
+"""
+function green_k_to_tau!(
+    G_taus::Vector{Matrix{ComplexF64}},
+    G_k::Array{ComplexF64, 3},
+    kpoints::Vector{Vector{Float64}},
+    taus::Vector{Vector{Float64}}
+)
+    Nk = length(kpoints)
+    for Gτ in G_taus; fill!(Gτ, zero(ComplexF64)); end
+    for (ki, k) in enumerate(kpoints)
+        Gk = @view G_k[:,:,ki]          # contiguous d×d block
+        for (n, τ) in enumerate(taus)
+            phase = cis(-dot(k, τ))
+            @. G_taus[n] += Gk * phase
+        end
+    end
+    inv_Nk = 1 / Nk
+    for Gτ in G_taus; Gτ .*= inv_Nk; end
+    return G_taus
 end
 
 # ──────────────── Effective Hamiltonian ────────────────
 
+# ──────────────── τ collection helper ────────────────
+
 """
-    build_heff_k!(H_k, T_k, V_r, G_k, G_r, kgrid; include_fock=true)
+    _collect_taus_k(wr_A, wr_B, wr_C) -> (taus_needed, tau_idx)
 
-Build the effective single-particle Hamiltonian H_eff(k) in-place:
+Collect all displacement vectors τ needed for computing G(τ) in `build_heff_k!`,
+and return a Dict mapping each τ to its index in the returned vector.
+Case C Hartree taus are always included (needed even when include_fock=false).
+"""
+function _collect_taus_k(wr_A, wr_B, wr_C)
+    taus = Vector{Float64}[]
+    wr_A !== nothing && wr_A.fock.delta    !== nothing && append!(taus, wr_A.fock.delta)
+    wr_B !== nothing && wr_B.hartree.delta !== nothing && append!(taus, wr_B.hartree.delta)
+    wr_C !== nothing && wr_C.hartree.delta !== nothing && append!(taus, wr_C.hartree.delta)
+    wr_C !== nothing && wr_C.fock.delta    !== nothing && append!(taus, wr_C.fock.delta)
+    unique!(taus)
+    return taus, Dict(τ => i for (i, τ) in enumerate(taus))
+end
 
-    H_eff^{αβ}(q) = T^{αβ}(q) + Σ^{αβ}(q)
+"""
+    build_heff_k!(H_k, T_k_func, wr_A, wr_B, wr_C, V_k_func, G_k, kpoints,
+                  G_taus_buf, g_adj_buf, f_buf, taus_needed, tau_idx; include_fock=true)
 
-The self-energy Σ^{αβ}(q) is computed from `V_r` via one of two paths,
-selected automatically based on the structure of `V_r.entries`:
+Build H_eff^{ab}(q) = T^{ab}(q) + Σ^{ab}(q) in-place for all q via direct Fourier sum.
 
-**Density-density path** (all τ1=τ2, τ3=0 in `V_r.entries`):
+**Self-energy (Cases A/B/C, direct sum O(N_τ × Nk × d²)):**
 
-- Hartree (q-independent):
+    Σ^{ab}(q) = Σ_τ reshape(K(τ) * vec(G(τ)), d, d) · exp(i q·τ)
 
-      Σ_H^{αβ} = Σ_{μν} W^{μναβ}(r) G^{μν}(r=0)   [summed over r; = W̃^{μναβ}(0) Ḡ^{μν}]
-               = Σ_{μν} W^{αβμν}(r) G^{μν}(r=0)   [symmetry: both terms are equal]
+where K(τ) is the (d²×d²) kernel from `build_Wr_A/B/C` and
+G(τ) = (1/Nk) Σ_k G(k) exp(-ik·τ).  Case C uses G(-τ) = adjoint(G(τ)).
 
-- Fock (q-dependent, FFT-accelerated, O(Nk log Nk)):
+**General case** (`V_k_func` ≠ nothing): O(Nk² · d⁴) via `build_Uk`.
 
-      Σ_F^{αβ}(q) = -FFT_r→q [ Σ_{μν} ½[W^{μβαν}(r) + W^{ανμβ}(r)] G^{μν}(r) ]
+Pre-allocated buffers (`G_taus_buf`, `g_adj_buf`, `f_buf`) and the τ lookup
+(`taus_needed`, `tau_idx`) must be prepared by `_collect_taus_k` + manual
+allocation before the SCF loop (see `_run_scf_k`).
 
-**General path** (non-zero τ1 or τ3 present; direct O(Nk²·d⁴) summation):
-
-    Σ^{αβ}(q) = (1/2N) Σ_k Σ_{μν} [
-        Ṽ^{μναβ}(k,k,q) + Ṽ^{αβμν}(q,q,k)   (Hartree)
-       -Ṽ^{μβαν}(k,q,q) - Ṽ^{ανμβ}(q,k,k)   (Fock)
-    ] G^{μν}(k)
-
-where Ṽ is obtained from `build_Vk(V_r, kgrid)`.
-
-# Arguments
-- `H_k::Array{ComplexF64, 3}`: Output (Nk, d_int, d_int), modified in-place
-- `T_k::Array{ComplexF64, 3}`: Kinetic term (Nk, d_int, d_int)
-- `V_r`: Real-space interaction table from `build_Vr`
-- `G_k::Array{ComplexF64, 3}`: Current G^{αβ}(k), shape (Nk, d_int, d_int)
-- `G_r::Array{ComplexF64, 3}`: Current G^{αβ}(r), shape (Nk, d_int, d_int)
-- `kgrid`: k-grid struct (needed for `build_Vk` in the general path)
-
-# Keyword Arguments
-- `include_fock::Bool = true`: Include Fock exchange (set false for Hartree-only)
+The inner q-loops are parallelized with `Threads.@threads`.
+`include_fock=false` skips A.fock, B.fock, and Case C Fock.
+Case C Hartree is always included.
 """
 function build_heff_k!(
     H_k::Array{ComplexF64, 3},
-    T_k::Union{Nothing, Array{ComplexF64, 3}},
-    V_r,
+    T_k_func,
+    wr_A, wr_B, wr_C,
+    V_k_func,
     G_k::Array{ComplexF64, 3},
-    G_r::Array{ComplexF64, 3},
-    kgrid;
+    kpoints::Vector{Vector{Float64}},
+    G_taus_buf::Vector{Matrix{ComplexF64}},
+    g_adj_buf::Matrix{ComplexF64},
+    f_buf::Vector{ComplexF64},
+    taus_needed::Vector{Vector{Float64}},
+    tau_idx::Dict{Vector{Float64},Int};
     include_fock::Bool = true
 )
+    Nk = length(kpoints)
+    d  = size(G_k, 1)          # G_k layout: (d, d, Nk)
 
+    # ── Kinetic term ──
+    if T_k_func !== nothing
+        Threads.@threads for qi in 1:Nk
+            H_k[:,:,qi] = T_k_func(kpoints[qi])
+        end
+    else
+        H_k .= 0
+    end
+
+    # ── G(τ) at all needed displacements (in-place) ──
+    if !isempty(G_taus_buf)
+        green_k_to_tau!(G_taus_buf, G_k, kpoints, taus_needed)
+    end
+
+    # ── G̅ = (1/Nk) Σ_k G(k)  [sum over last dim] ──
+    G_bar = dropdims(sum(G_k, dims=3), dims=3) ./ Nk   # d×d
+
+    # ── Inner helper: accumulate f_buf contribution to H_k for all q ──
+    # f_buf is read-only during the threaded section; H_k[:,:,qi] unique per qi.
+    function _accum_q!(sign::Int, τ::Vector{Float64})
+        Threads.@threads for qi in 1:Nk
+            phase = sign * cis(dot(kpoints[qi], τ)) * 0.5
+            @inbounds for j in 1:d, i in 1:d
+                H_k[i, j, qi] += f_buf[i + (j-1)*d] * phase
+            end
+        end
+    end
+
+    # ── Case A: density-density ──
+    if wr_A !== nothing
+        # Hartree (q-independent): +½ K_H · vec(G̅)
+        if wr_A.hartree !== nothing
+            mul!(f_buf, wr_A.hartree, vec(G_bar))
+            Threads.@threads for qi in 1:Nk
+                @inbounds for j in 1:d, i in 1:d
+                    H_k[i, j, qi] += f_buf[i + (j-1)*d] * 0.5
+                end
+            end
+        end
+        # Fock (q-dependent): -½ Σ_τ K(τ) · vec(G(τ)) · exp(iq·τ)
+        if include_fock && wr_A.fock.mats !== nothing
+            for (K, τ) in zip(wr_A.fock.mats, wr_A.fock.delta)
+                mul!(f_buf, K, vec(G_taus_buf[tau_idx[τ]]))
+                _accum_q!(-1, τ)
+            end
+        end
+    end
+
+    # ── Case B: exchange-type ──
+    if wr_B !== nothing
+        # Hartree (q-dependent): +½ Σ_τ K(τ) · vec(G(τ)) · exp(iq·τ)
+        if wr_B.hartree.mats !== nothing
+            for (K, τ) in zip(wr_B.hartree.mats, wr_B.hartree.delta)
+                mul!(f_buf, K, vec(G_taus_buf[tau_idx[τ]]))
+                _accum_q!(+1, τ)
+            end
+        end
+        # Fock (q-independent): -½ K_F · vec(G̅)
+        if include_fock && wr_B.fock !== nothing
+            mul!(f_buf, wr_B.fock, vec(G_bar))
+            Threads.@threads for qi in 1:Nk
+                @inbounds for j in 1:d, i in 1:d
+                    H_k[i, j, qi] -= f_buf[i + (j-1)*d] * 0.5
+                end
+            end
+        end
+    end
+
+    # ── Case C: pair-hopping (G(-τ) = adjoint(G(τ))) ──
+    # Hartree channel: always. Fock channel: only if include_fock.
+    if wr_C !== nothing
+        if wr_C.hartree.mats !== nothing
+            for (K, τ) in zip(wr_C.hartree.mats, wr_C.hartree.delta)
+                g_adj_buf .= adjoint(G_taus_buf[tau_idx[τ]])
+                mul!(f_buf, K, vec(g_adj_buf))
+                _accum_q!(+1, τ)
+            end
+        end
+        if include_fock && wr_C.fock.mats !== nothing
+            for (K, τ) in zip(wr_C.fock.mats, wr_C.fock.delta)
+                g_adj_buf .= adjoint(G_taus_buf[tau_idx[τ]])
+                mul!(f_buf, K, vec(g_adj_buf))
+                _accum_q!(-1, τ)
+            end
+        end
+    end
+
+    # ── General case: O(Nk² · d⁴) ──
+    if V_k_func !== nothing
+        U_func = build_Uk(V_k_func)
+        for (qi, q) in enumerate(kpoints)
+            for (ki, k) in enumerate(kpoints)
+                U = U_func(k, q)
+                @view(H_k[:,:,qi]) .+= reshape(U * vec(@view G_k[:,:,ki]), d, d) ./ (2Nk)
+            end
+        end
+    end
 end
 
 # ──────────────── Diagonalization and occupation ────────────────
@@ -597,43 +749,32 @@ end
 """
     diagonalize_heff_k(H_k) -> (eigenvalues, eigenvectors)
 
-Diagonalize H_eff(k) at each k-point independently.
-
-# Arguments
-- `H_k::Array{ComplexF64, 3}`: Shape (Nk, d_int, d_int); H_k[k,:,:] must be Hermitian
+Diagonalize H_eff(k) at each k-point independently (parallelized over threads).
+`H_k` has layout `(d, d, Nk)`; each `H_k[:,:,ki]` is a contiguous Hermitian `d×d` matrix.
 
 # Returns
-- `eigenvalues::Matrix{Float64}`: Shape (Nk, d_int); sorted ascending at each k
-- `eigenvectors::Array{ComplexF64, 3}`: Shape (Nk, d_int, d_int);
-  `eigenvectors[k, :, n]` is the n-th eigenstate at k-point k
+- `eigenvalues::Matrix{Float64}`: Shape `(d, Nk)`, sorted ascending per k.
+- `eigenvectors::Array{ComplexF64, 3}`: Shape `(d, d, Nk)`; `evecs[:,n,ki]` is the n-th eigenstate.
 """
 function diagonalize_heff_k(H_k::Array{ComplexF64, 3})
-  
+    d, _, Nk = size(H_k)
+    evals = Matrix{Float64}(undef, d, Nk)
+    evecs = Array{ComplexF64, 3}(undef, d, d, Nk)
+    Threads.@threads for ki in 1:Nk
+        F = eigen(Hermitian(@view H_k[:,:,ki]))
+        evals[:,ki]   = F.values
+        evecs[:,:,ki] = F.vectors
+    end
+    return evals, evecs
 end
 
 """
     find_chemical_potential_k(eigenvalues, n_electrons, temperature; ene_cutoff=100.0) -> Float64
 
-Find the global chemical potential μ enforcing total electron number:
+Find μ such that total occupation = n_electrons.
 
-    Σ_{k,n} f(ε_{kn}, μ) = n_electrons
-
-Uses bisection on the global spectrum.
-
-# Arguments
-- `eigenvalues::Matrix{Float64}`: Shape (Nk, d_int); all band energies
-- `n_electrons::Int`: Target total electron count (over all k-points)
-- `temperature::Float64`: Temperature (0 for ground state, uses midgap)
-
-# Keyword Arguments
-- `ene_cutoff::Float64 = 100.0`: Overflow guard for Fermi-Dirac
-
-# Returns
-`Float64` chemical potential μ.
-
-# Notes
-In momentum-space HF, all k-points share a single μ (unlike real-space HF with
-per-block μ), because particle number conservation is global.
+At T=0: μ placed in the midgap between the n_electrons-th and (n_electrons+1)-th levels.
+At T>0: bisection on the global Fermi-Dirac sum.
 """
 function find_chemical_potential_k(
     eigenvalues::Matrix{Float64},
@@ -641,26 +782,34 @@ function find_chemical_potential_k(
     temperature::Float64;
     ene_cutoff::Float64 = 100.0
 )
-  
+    all_evals = sort(vec(eigenvalues))
+    if temperature == 0.0
+        e_occ   = all_evals[n_electrons]
+        e_unocc = n_electrons < length(all_evals) ? all_evals[n_electrons+1] : e_occ + 1.0
+        return (e_occ + e_unocc) / 2
+    end
+    fermi(mu) = sum(1 / (exp(clamp((e - mu)/temperature, -ene_cutoff, ene_cutoff)) + 1)
+                    for e in all_evals)
+    lo, hi = all_evals[1] - 10temperature, all_evals[end] + 10temperature
+    for _ in 1:100
+        mid = (lo + hi) / 2
+        fermi(mid) < n_electrons ? (lo = mid) : (hi = mid)
+        hi - lo < 1e-12 && break
+    end
+    return (lo + hi) / 2
 end
 
 """
     update_green_k(eigenvectors, eigenvalues, mu, temperature; ene_cutoff=100.0) -> Array{ComplexF64, 3}
 
-Construct the new Green's function G_{ab}(k) from eigenstates and occupations:
+Construct G(k) from eigenstates and Fermi-Dirac occupations:
 
-    G_{ab}(k) = Σ_n  f(ε_{kn}, μ) · u_{ka,n}^* · u_{kb,n}
+    G^{ab}(k) = Σ_n  f(ε_{kn} - μ) · u_{a,n}(k)* · u_{b,n}(k)
 
-where u_{k,n} is the n-th eigenvector at k and f is the Fermi-Dirac distribution.
-
-# Arguments
-- `eigenvectors::Array{ComplexF64, 3}`: Shape (Nk, d_int, d_int)
-- `eigenvalues::Matrix{Float64}`: Shape (Nk, d_int)
-- `mu::Float64`: Chemical potential
-- `temperature::Float64`: Temperature
-
-# Returns
-`Array{ComplexF64, 3}` of shape (Nk, d_int, d_int).
+where `eigenvectors[:, n, ki]` is the n-th eigenstate at k-point ki (column-major).
+In matrix form: G(k) = conj(V · diag(f) · V†) = conj(V) · diag(f) · Vᵀ.
+Layouts: `eigenvectors` shape `(d, d, Nk)`, `eigenvalues` shape `(d, Nk)`.
+Returns `G_new` of shape `(d, d, Nk)`.
 """
 function update_green_k(
     eigenvectors::Array{ComplexF64, 3},
@@ -669,93 +818,184 @@ function update_green_k(
     temperature::Float64;
     ene_cutoff::Float64 = 100.0
 )
-  
+    d, _, Nk = size(eigenvectors)
+    G_new = Array{ComplexF64, 3}(undef, d, d, Nk)
+    for ki in 1:Nk
+        v = @view eigenvectors[:,:,ki]   # contiguous d×d matrix
+        w = @view eigenvalues[:,ki]
+        dist = temperature == 0.0 ?
+            Float64.(w .<= mu + 1e-12) :
+            [1 / (exp(clamp((e-mu)/temperature, -ene_cutoff, ene_cutoff)) + 1) for e in w]
+        G_new[:,:,ki] = conj((v .* dist') * v')
+    end
+    return G_new
 end
 
 # ──────────────── Energy calculation ────────────────
 
 """
-    calculate_energies_k(G_k, G_r, T_k, W_r_sym, eigenvalues, mu, n_electrons, temperature; ene_cutoff=100.0)
+    calculate_energies_k(eigenvalues, mu, n_electrons, temperature, G_k, H_k, T_k_func, kpoints)
 
-Calculate HF total energy in momentum space.
-
-**Band energy (T = 0):**
-
-    E_band = (1/Nk) Σ_{k,n∈occ} ε_{kn}
-
-**Band energy (T > 0, grand potential):**
-
-    E_band = μ · n_electrons - T · (1/Nk) Σ_{k,n} ln(1 + exp(-(ε_{kn} - μ)/T))
-
-**Interaction energy (double-counting correction):**
-
-    E_int = -½ · (1/Nk) Σ_k Tr[ Σ^HF(k) · G(k) ]
-
-where Σ^HF = Σ^H + Σ^F is the total self-energy (Hartree + Fock), so that
-E_total = E_band + E_int avoids double-counting the interaction.
-
-# Returns
-`NamedTuple (band, interaction, total)` of `Float64`.
+    E_band  = (1/Nk) Σ_{k,n}  ε_{kn} · f(ε_{kn} - μ)
+    E_int   = -(1/2Nk) Σ_k  Re Tr[ (H_eff(k) - T(k)) · G(k) ]
+    E_total = E_band + E_int
 """
 function calculate_energies_k(
-    G_k::Array{ComplexF64, 3},
-    G_r::Array{ComplexF64, 3},
-    T_k::Array{ComplexF64, 3},
-    V_r,
     eigenvalues::Matrix{Float64},
     mu::Float64,
-    n_electrons::Int,
-    temperature::Float64;
+    temperature::Float64,
+    G_k::Array{ComplexF64, 3},
+    H_k::Array{ComplexF64, 3},
+    T_k_func,
+    kpoints::Vector{Vector{Float64}};
     ene_cutoff::Float64 = 100.0
 )
-  
+    d, _, Nk = size(G_k)          # layout: (d, d, Nk)
+    E_band = if temperature == 0.0
+        sum(eigenvalues[n,ki] for n in 1:d, ki in 1:Nk
+            if eigenvalues[n,ki] <= mu + 1e-12) / Nk
+    else
+        sum(eigenvalues[n,ki] /
+            (exp(clamp((eigenvalues[n,ki]-mu)/temperature, -ene_cutoff, ene_cutoff)) + 1)
+            for n in 1:d, ki in 1:Nk) / Nk
+    end
+    E_int = 0.0
+    for (ki, k) in enumerate(kpoints)
+        T_k = T_k_func !== nothing ? T_k_func(k) : zeros(ComplexF64, d, d)
+        E_int += real(tr(((@view H_k[:,:,ki]) .- T_k) * (@view G_k[:,:,ki])))
+    end
+    E_int *= -1 / (2Nk)
+    return (band=E_band, interaction=E_int, total=E_band + E_int)
 end
 
-# ──────────────── DIIS for momentum-space G ────────────────
+# ──────────────── DIIS extrapolation ────────────────
 
-# DIIS extrapolation for the k-space Green's function.
-# G_hist and R_hist store the last m iterates and residuals, reshaped as matrices.
-# Falls back to most-recent iterate when the DIIS matrix is near-singular.
 function _diis_extrapolate_k(
     G_hist::Vector{Array{ComplexF64, 3}},
     R_hist::Vector{Array{ComplexF64, 3}}
 )
-
+    m = length(G_hist)
+    B = zeros(Float64, m+1, m+1)
+    for i in 1:m, j in i:m
+        v = real(dot(vec(R_hist[i]), vec(R_hist[j])))
+        B[i,j] = v; B[j,i] = v
+    end
+    B[1:m, m+1] .= -1.0
+    B[m+1, 1:m] .= -1.0
+    rhs = zeros(Float64, m+1); rhs[m+1] = -1.0
+    c = try (B \ rhs)[1:m] catch; vcat(zeros(Float64, m-1), 1.0) end
+    return sum(c[i] .* G_hist[i] for i in 1:m)
 end
 
 # ──────────────── Internal SCF loop ────────────────
 
-# Internal: run one SCF loop from initial G_k; returns NamedTuple with all results.
 function _run_scf_k(
     G_k::Array{ComplexF64, 3},
-    T_k::Union{Nothing, Array{ComplexF64, 3}},
-    V_r,
-    kgrid,
+    T_k_func,
+    wr_A, wr_B, wr_C, V_k_func,
+    kpoints::Vector{Vector{Float64}},
     n_electrons::Int,
     temperature::Float64,
     max_iter::Int,
     tol::Float64,
-    mix_alpha::Float64,
     diis_m::Int,
     ene_cutoff::Float64,
     include_fock::Bool,
     verbose::Bool,
     timings::Dict{String, Tuple{Int64, Int}}
 )
+    d, _, Nk = size(G_k)           # layout: (d, d, Nk)
+    H_k = zeros(ComplexF64, d, d, Nk)
+    G_hist = Array{ComplexF64, 3}[]
+    R_hist = Array{ComplexF64, 3}[]
+    energies = (band=0.0, interaction=0.0, total=0.0)
+    mu = 0.0
+    evals = Matrix{Float64}(undef, d, Nk)
+    evecs = Array{ComplexF64, 3}(undef, d, d, Nk)
+    converged = false
+    residual  = Inf
+    iter = 0
 
+    # ── Pre-allocate SCF buffers (reused every iteration) ──
+    taus_needed, tau_idx = _collect_taus_k(wr_A, wr_B, wr_C)
+    G_taus_buf = [zeros(ComplexF64, d, d) for _ in taus_needed]
+    g_adj_buf  = zeros(ComplexF64, d, d)
+    f_buf      = zeros(ComplexF64, d^2)
+
+    for i in 1:max_iter
+        iter = i
+        G_old = copy(G_k)
+
+        t0 = Int64(time_ns())
+        build_heff_k!(H_k, T_k_func, wr_A, wr_B, wr_C, V_k_func, G_k, kpoints,
+                      G_taus_buf, g_adj_buf, f_buf, taus_needed, tau_idx;
+                      include_fock=include_fock)
+        _accum!(timings, "build_heff_k", Int64(time_ns()) - t0)
+
+        t0 = Int64(time_ns())
+        evals, evecs = diagonalize_heff_k(H_k)
+        _accum!(timings, "diagonalize_k", Int64(time_ns()) - t0)
+
+        mu = find_chemical_potential_k(evals, n_electrons, temperature;
+                                       ene_cutoff=ene_cutoff)
+
+        t0 = Int64(time_ns())
+        G_new = update_green_k(evecs, evals, mu, temperature; ene_cutoff=ene_cutoff)
+        _accum!(timings, "update_green_k", Int64(time_ns()) - t0)
+
+        residual = norm(G_new .- G_old) / (Nk * d^2)
+
+        # Mix
+        if diis_m > 0
+            push!(G_hist, G_new); push!(R_hist, G_new .- G_old)
+            length(G_hist) > diis_m && (popfirst!(G_hist); popfirst!(R_hist))
+            G_k = length(G_hist) >= 2 ? _diis_extrapolate_k(G_hist, R_hist) : G_new
+        else
+            G_k = G_new
+        end
+
+        # Energies (first iter, every 10, and at convergence)
+        if i == 1 || i % 10 == 0 || residual < tol
+            t0 = Int64(time_ns())
+            energies = calculate_energies_k(evals, mu, temperature,
+                                            G_k, H_k, T_k_func, kpoints;
+                                            ene_cutoff=ene_cutoff)
+            _accum!(timings, "calc_energies_k", Int64(time_ns()) - t0)
+        end
+
+        ncond = real(sum(G_k[a,a,ki] for a in 1:d, ki in 1:Nk)) / Nk
+
+        if residual < tol
+            converged = true
+            verbose && println(@sprintf("%s Iter %4d  res = %.3e < %.3e  CONVERGED",
+                                        _now_str(), i, residual, tol))
+            verbose && flush(stdout)
+            break
+        end
+        if verbose && (i == 1 || i % 10 == 0)
+            println(@sprintf("%s Iter %4d  res = %.3e  E = %+.6f  NCond = %.4f",
+                             _now_str(), i, residual, energies.total, ncond))
+            flush(stdout)
+        end
+    end
+
+    ncond = real(sum(G_k[ki,a,a] for ki in 1:Nk, a in 1:d)) / Nk
+    return (G_k=G_k, eigenvalues=evals, eigenvectors=evecs,
+            energies=energies, mu=mu,
+            converged=converged, iterations=iter, residual=residual, ncond=ncond)
 end
 
-# ──────────────── Timing utilities (mirrors hartreefock_real.jl) ────────────────
+# ──────────────── Timing utilities ────────────────
 
 const _PHASE_ORDER_K = ["build_Tr", "build_Tk", "build_Vr", "initialize_green_k",
                         "build_heff_k", "diagonalize_k", "update_green_k",
                         "calc_energies_k", "solve_hfk"]
 
-function _print_timing_table_k(timings::Dict{String, Tuple{Int64, Int}}, total_ns::Int64)
+function _print_timing_table_k(timings::Dict{String, Tuple{Int64, Int}})
     W = 22
     sep = "  " * "─"^58
     println()
-    println("  ── Timing Summary (k-space HF) " * "─"^32)
+    println("  ── Timing Summary (k-space HF) " * "─"^27)
     println(@sprintf("  %-*s  %10s  %10s  %6s", W, "Phase", "Total", "Avg", "Calls"))
     println(sep)
     for key in filter(k -> k != "solve_hfk", _PHASE_ORDER_K)
@@ -775,106 +1015,70 @@ end
 # ──────────────── Public API ────────────────
 
 """
-    solve_hfk(dofs, lattice, ops, n_electrons; kwargs...)
+    solve_hfk(dofs, onebody, twobody, kpoints, n_electrons; kwargs...)
 
-Solve Hartree-Fock equations in momentum space using self-consistent field (SCF) iteration.
+Solve Hartree-Fock in momentum space via SCF iteration.
 
-Exploits translational symmetry: the k-space Green's function G_{ab}(k) is block-diagonal
-in k, so each k-point is diagonalized independently in O(d³) instead of O(N³).
-
-The unit cell (and thus the k-grid) is fixed by `lattice`. If the ground state is expected
-to spontaneously break translational symmetry (antiferromagnetism, CDW, etc.), pass a
-`lattice` constructed with the **enlarged magnetic unit cell** so that the ansatz
-G_{ab}(k) δ_{k,k'} remains valid for the broken-symmetry phase.
+Each k-point is diagonalized independently (parallelized over `Threads.nthreads()` threads).
+The magnetic unit cell is encoded in `dofs`; `kpoints` samples its Brillouin zone.
+For broken-symmetry phases (AFM, CDW, …) pass an enlarged magnetic unit cell.
 
 # Arguments
-- `dofs::SystemDofs`: Full system DOFs. Position DOFs must match `lattice.position_dofs`.
-- `lattice::Lattice`: Lattice structure with `supercell_vectors` set. Defines the k-grid and
-  spatial structure needed to decompose operators into T(k) and W(r).
-- `ops`: All operators: one-body (2 FermionOp) and two-body (4 FermionOp).
-- `n_electrons::Int`: Total electron number (summed over all k-points and bands).
+- `dofs::SystemDofs`: Internal DOFs of one magnetic unit cell.
+- `onebody`: Result of `generate_onebody(...)`; needs `.ops` and `.irvec`.
+- `twobody`: Result of `generate_twobody(...)`; needs `.ops` and `.irvec`.
+- `kpoints::Vector{Vector{Float64}}`: k-points (use `build_kpoints` for uniform grids).
+- `n_electrons::Int`: Total electron number across all k-points.
 
 # Keyword Arguments
-- `temperature::Float64 = 0.0`: Temperature. 0 selects T=0 step occupation; >0 uses Fermi-Dirac.
-- `max_iter::Int = 1000`: Maximum SCF iterations per restart.
-- `tol::Float64 = 1e-6`: Convergence tolerance: ‖G_new - G_old‖_F / (Nk·d²).
-- `mix_alpha::Float64 = 0.5`: Linear mixing parameter (0 < α ≤ 1).
-- `diis_m::Int = 8`: DIIS history window. Set to 0 to disable DIIS.
-- `G_init = nothing`: Initial G[k, a, b] array of shape (Nk, d_int, d_int). If `nothing`,
-  a random Hermitian initialization is used.
-- `ene_cutoff::Float64 = 100.0`: Overflow guard for Fermi-Dirac at low T.
-- `n_restarts::Int = 1`: Number of random restarts. Returns the lowest-energy converged result.
-- `seed::Union{Nothing, Int} = nothing`: Random seed for reproducibility.
-- `include_fock::Bool = true`: Include Fock exchange. Set false for Hartree-only.
-- `verbose::Bool = true`: Print iteration information and timing summary.
+- `temperature::Float64 = 0.0`
+- `max_iter::Int = 1000`
+- `tol::Float64 = 1e-8`: Convergence threshold ‖ΔG‖_F / (Nk·d²).
+- `diis_m::Int = 8`: DIIS history window (0 = disabled).
+- `G_init = nothing`: Initial G_k of shape `(Nk, d, d)`; random if `nothing`.
+- `ene_cutoff::Float64 = 100.0`
+- `n_restarts::Int = 1`: Random restarts; returns lowest-energy converged result.
+- `seed::Union{Nothing,Int} = nothing`
+- `include_fock::Bool = true`
+- `verbose::Bool = true`
 
 # Returns
-`NamedTuple` with fields:
-- `G_k::Array{ComplexF64, 3}`: Converged G_{ab}(k), shape (Nk, d_int, d_int)
-- `G_r::Array{ComplexF64, 3}`: G_{ab}(r) = IFFT[G_{ab}(k)], shape (Nk, d_int, d_int)
-- `eigenvalues::Matrix{Float64}`: Band energies, shape (Nk, d_int), sorted per k
-- `eigenvectors::Array{ComplexF64, 3}`: Eigenstates, shape (Nk, d_int, d_int)
-- `energies::NamedTuple`: `(band, interaction, total)` energies
-- `mu::Float64`: Chemical potential
-- `kgrid`: k-grid used (for post-processing)
-- `converged::Bool`: Whether SCF converged within `max_iter`
-- `iterations::Int`: Number of SCF iterations performed
-- `residual::Float64`: Final residual ‖ΔG‖ / (Nk·d²)
-- `ncond::Float64`: Total electron number Σ_k Tr[G(k)] / Nk (should equal n_electrons)
-
-# Examples
-```julia
-# 2D Hubbard model on 8×8 lattice, half-filling, with spin blocks
-dofs = SystemDofs([Dof(:site, 64), Dof(:spin, 2)], sortrule=[[2], 1])
-unitcell = Lattice([Dof(:site, 1)], [QN(site=1)], [[0.0, 0.0]])
-lattice = Lattice(unitcell, [[1.0, 0.0], [0.0, 1.0]], (8, 8))
-
-# Build operators from bonds
-nn_bonds = bonds(lattice, (:p, :p), 1)
-onebody  = generate_onebody(magcell_dofs, nn_bonds, -1.0)
-twobody  = generate_twobody(magcell_dofs, ...)
-
-result = solve_hfk(dofs, lattice, onebody, twobody, 64;  # half-filling: 64 electrons on 64 sites
-                   temperature=0.0, n_restarts=5, seed=42)
-println("Total energy: ", result.energies.total)
-println("Converged:    ", result.converged)
-```
+NamedTuple: `G_k, eigenvalues, eigenvectors, energies, mu, kpoints, converged, iterations, residual, ncond`.
 """
 function solve_hfk(
     dofs::SystemDofs,
-    lattice::Lattice,
-    onebody::NamedTuple,
-    twobody::AbstractVector{<:Operators},
+    onebody,
+    twobody,
+    kpoints::Vector{Vector{Float64}},
     n_electrons::Int;
-    temperature::Float64 = 0.0,
-    max_iter::Int = 1000,
-    tol::Float64 = 1e-6,
-    mix_alpha::Float64 = 0.5,
-    diis_m::Int = 8,
-    G_init = nothing,
-    ene_cutoff::Float64 = 100.0,
-    n_restarts::Int = 1,
-    seed::Union{Nothing, Int} = nothing,
-    include_fock::Bool = true,
-    verbose::Bool = true
+    temperature::Float64       = 0.0,
+    max_iter::Int              = 1000,
+    tol::Float64               = 1e-8,
+    diis_m::Int                = 8,
+    G_init                     = nothing,
+    ene_cutoff::Float64        = 100.0,
+    n_restarts::Int            = 1,
+    seed::Union{Nothing, Int}  = nothing,
+    include_fock::Bool         = true,
+    verbose::Bool              = true
 )
     solve_start = Int64(time_ns())
     timings = Dict{String, Tuple{Int64, Int}}()
 
+    Nk = length(kpoints)
+    d  = length(dofs.valid_states)
+
     verbose && println("="^60)
     verbose && println("Hartree-Fock SCF Solver (momentum space)")
     verbose && println("="^60)
-
-    # ── Build k-grid ──
-    kgrid = build_kgrid(lattice)
-    d_int = length(dofs.valid_states)
-    Nk    = kgrid.nk
-
     if verbose
-        println(@sprintf("  k-grid: Nk = %d,  d_int = %d,  N = %d", Nk, d_int, Nk * d_int))
-        println(@sprintf("  n_electrons = %d,  T = %.4g", n_electrons, temperature))
-        println(_now_str() * " Building T(k) and W(r)  ($(length(onebody.ops)) + $(length(twobody)) operators)")
-        flush(stdout)
+        println(@sprintf("  Nk = %d,  d = %d,  n_electrons = %d,  T = %.4g",
+                         Nk, d, n_electrons, temperature))
+        mixing_str = diis_m > 0 ? "DIIS(m=$diis_m)" : "last-iterate"
+        println(@sprintf("  mixing = %s,  tol = %.2g,  max_iter = %d",
+                         mixing_str, tol, max_iter))
+        n_restarts > 1 && println("  Restarts: $n_restarts")
+        println("="^60); flush(stdout)
     end
 
     # ── Preprocessing ──
@@ -883,64 +1087,69 @@ function solve_hfk(
     _accum!(timings, "build_Tr", Int64(time_ns()) - t0)
 
     t0 = Int64(time_ns())
-    T_k = build_Tk(T_r, kgrid)
+    T_k_func = build_Tk(T_r)
     _accum!(timings, "build_Tk", Int64(time_ns()) - t0)
-    if verbose
-        tk_info = T_k === nothing ? "nothing (no hopping)" : string(size(T_k))
-        println(@sprintf("               T(k): %s  %s", tk_info, _fmt_ns(timings["build_Tk"][1])))
-    end
 
     t0 = Int64(time_ns())
-    V_r = build_Vr(dofs, lattice, twobody)
+    V_r = build_Vr(dofs, twobody.ops, twobody.irvec)
     _accum!(timings, "build_Vr", Int64(time_ns()) - t0)
-    verbose && println(@sprintf("               V(r): %d entries  %s", length(V_r.entries), _fmt_ns(timings["build_Vr"][1])))
-
-    # ── Validation ──
-    @assert 0 < mix_alpha <= 1  "mix_alpha must be in (0, 1]"
-    @assert temperature >= 0    "temperature must be non-negative"
-    @assert n_restarts >= 1     "n_restarts must be >= 1"
-    @assert 0 < n_electrons <= Nk * d_int "n_electrons out of range"
 
     if verbose
-        mixing_str = diis_m > 0 ? "DIIS(m=$diis_m)" : "linear(α=$(mix_alpha))"
-        println(@sprintf("  mixing = %s,  tol = %.2g,  max_iter = %d", mixing_str, tol, max_iter))
-        n_restarts > 1 && println("  Restarts: $n_restarts")
-        println("="^60)
+        println(@sprintf("%s  T(r): %d terms  %s", _now_str(),
+                         length(T_r.mats), _fmt_ns(timings["build_Tr"][1])))
+        println(@sprintf("%s  V(r): %d triples  %s", _now_str(),
+                         length(V_r.mats), _fmt_ns(timings["build_Vr"][1])))
+        flush(stdout)
     end
+
+    classified = isempty(V_r.mats) ? nothing : _classify_Vr(V_r)
+    wr_A = classified !== nothing ? build_Wr_A(classified.A.mats, classified.A.taus) : nothing
+    wr_B = classified !== nothing ? build_Wr_B(classified.B.mats, classified.B.taus) : nothing
+    wr_C = classified !== nothing ? build_Wr_C(classified.C.mats, classified.C.taus) : nothing
+    V_k_func = (classified !== nothing && !isempty(classified.general.mats)) ?
+               build_Vk((mats=classified.general.mats, taus=classified.general.taus)) : nothing
+
+    @assert 0 < n_electrons <= Nk * d  "n_electrons out of range [1, $(Nk*d)]"
+    @assert temperature >= 0            "temperature must be non-negative"
+    @assert n_restarts >= 1             "n_restarts must be >= 1"
 
     rng = seed !== nothing ? MersenneTwister(seed) : Random.default_rng()
     best_result = nothing
 
     for restart in 1:n_restarts
-        if n_restarts > 1 && verbose
-            println("-"^60)
-            println(_now_str() * @sprintf(" Restart %d / %d", restart, n_restarts))
-            println("-"^60)
+        if n_restarts > 1
+            verbose && println("-"^60)
+            verbose && println(_now_str() * @sprintf(" Restart %d / %d", restart, n_restarts))
+            verbose && println("-"^60)
         end
 
         t0 = Int64(time_ns())
         G_k = G_init !== nothing && restart == 1 ?
-              initialize_green_k(Nk, d_int, G_init=G_init) :
-              initialize_green_k(Nk, d_int, rng=rng)
+              initialize_green_k(Nk, d; G_init=G_init) :
+              initialize_green_k(Nk, d; rng=rng)
         _accum!(timings, "initialize_green_k", Int64(time_ns()) - t0)
+        n_restarts == 1 && verbose &&
+            println(_now_str() * @sprintf(" G initialized  %s",
+                                          _fmt_ns(timings["initialize_green_k"][1])))
 
-        result = _run_scf_k(G_k, T_k, V_r, kgrid, n_electrons,
-                            temperature, max_iter, tol, mix_alpha, diis_m, ene_cutoff,
+        result = _run_scf_k(G_k, T_k_func, wr_A, wr_B, wr_C, V_k_func,
+                            kpoints, n_electrons, temperature,
+                            max_iter, tol, diis_m, ene_cutoff,
                             include_fock, n_restarts > 1 ? false : verbose, timings)
 
         if n_restarts > 1 && verbose
             println(@sprintf("  Restart %d: E = %+.10f  (%s, %d iters)",
                              restart, result.energies.total,
-                             result.converged ? "CONVERGED" : "NOT CONVERGED", result.iterations))
+                             result.converged ? "CONVERGED" : "NOT CONVERGED",
+                             result.iterations))
         end
 
         if best_result === nothing ||
-           (result.converged && (!best_result.converged || result.energies.total < best_result.energies.total))
+           (result.converged && (!best_result.converged ||
+            result.energies.total < best_result.energies.total))
             best_result = result
         end
     end
-
-    ncond = real(sum(best_result.G_k[k, a, a] for k in 1:Nk, a in 1:d_int)) / Nk
 
     if verbose
         println("="^60)
@@ -953,13 +1162,13 @@ function solve_hfk(
         println(@sprintf("  Band energy:        %+.10f", best_result.energies.band))
         println(@sprintf("  Interaction energy: %+.10f", best_result.energies.interaction))
         println(@sprintf("  Total energy:       %+.10f", best_result.energies.total))
-        println(@sprintf("  NCond:              %.6f",   ncond))
+        println(@sprintf("  NCond:              %.6f",   best_result.ncond))
         println(@sprintf("  μ:                  %+.10f", best_result.mu))
         total_ns = Int64(time_ns()) - solve_start
         _accum!(timings, "solve_hfk", total_ns)
-        _print_timing_table_k(timings, total_ns)
+        _print_timing_table_k(timings)
         flush(stdout)
     end
 
-    return merge(best_result, (ncond=ncond, kgrid=kgrid))
+    return merge(best_result, (kpoints=kpoints,))
 end

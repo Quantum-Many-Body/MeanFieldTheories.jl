@@ -344,36 +344,94 @@ All three cases reduce the $O(N_k^2 d^4)$ direct summation to $O(N_k\log N_k)$. 
 
 ## Code Implementation
 
+### Array Layout Convention
+
+All 3-tensors storing per-$k$ matrices use **column-major (d, d, Nk)** layout so that each $k$-slice is a contiguous $d\times d$ block in memory:
+
+| Quantity | Shape | Access |
+|---|---|---|
+| `G_k`, `H_k`, `evecs` | `(d, d, Nk)` | `@view arr[:,:,ki]` |
+| `evals` | `(d, Nk)` | `@view evals[:,ki]` |
+| `G_taus[n]` | `(d, d)` | direct |
+
 ### 1. Preprocessing: Kinetic Term
 
-**`build_Tr(dofs, ops, irvec)`** — Parses one-body operators and builds the real-space hopping table $T_{ab}(\mathbf{r})$ as a sparse entry list. Returns `(entries, d_int)` where each entry carries the displacement $\mathbf{r}$, orbital indices $(a, b)$, and hopping amplitude.
+**`build_Tr(dofs, ops, irvec)`** — Parses one-body operators and builds the real-space hopping table. Returns `(mats, delta)` where `mats[n]` is a $d\times d$ matrix for displacement `delta[n]`.
 
-**`build_Tk(T_r, kgrid)`** — Fourier-transforms the $T(\mathbf{r})$ table to $T_{ab}(\mathbf{k})$ at every $\mathbf{k}$-point:
+**`build_Tk(T_r)`** — Returns a **closure** `T_func(k) -> Matrix{ComplexF64}` that evaluates
 
 $$T_{ab}(\mathbf{k}) = \sum_{\mathbf{r}} T_{ab}(\mathbf{r})\,e^{i\mathbf{k}\cdot\mathbf{r}}$$
 
-Returns a precomputed `Array{ComplexF64, 3}` of shape $(N_k, d, d)$.
+at any momentum $\mathbf{k}$ on demand. Returns `nothing` if there are no hopping terms.
 
 ### 2. Preprocessing: Interaction Term
 
-**`build_Vr(dofs, ops, irvec)`** — Parses two-body operators and builds the real-space interaction table $\bar{V}^{abcd}(\boldsymbol{\tau}_1, \boldsymbol{\tau}_2, \boldsymbol{\tau}_3)$. Returns one $d\times d\times d\times d$ array per unique $(\boldsymbol{\tau}_1,\boldsymbol{\tau}_2,\boldsymbol{\tau}_3)$ triple.
+**`build_Vr(dofs, ops, irvec)`** — Parses two-body operators. Returns `(mats, taus)` where `mats[n]` is a $d\times d\times d\times d$ array for displacement triple `taus[n] = (τ1,τ2,τ3)`.
 
-**`build_Wr(V_r)`** — Extracts the single-displacement kernel $W^{abcd}(\boldsymbol{\tau})$ for Case A (density-density). Validates $\boldsymbol{\tau}_1=\boldsymbol{\tau}_2$ and $\boldsymbol{\tau}_3=\mathbf{0}$; returns `(mats, delta)` with the same convention as `build_Tr`.
+**`_classify_Vr(V_r)`** — Partitions entries of `V_r` into four cases by $\boldsymbol{\tau}$ structure (priority A > B > C > general). Returns `(A, B, C, general)`, each `(mats, taus)`.
 
-**`build_Vk(V_r)`** — Returns a closure `(k1, k2, k3) -> Array{ComplexF64,4}` for the three-momentum kernel $\widetilde{V}(\mathbf{k}_1,\mathbf{k}_2,\mathbf{k}_3)$. Only needed for the general path (Case not A/B/C).
+**`build_Wr_A(mats_a, taus_a)`** — Assembles Case A kernels. Returns `(hartree, fock)` where `hartree` is a $(d^2\!\times\!d^2)$ matrix (q-independent) and `fock` is `(mats, delta)` with each kernel a $(d^2\!\times\!d^2)$ matrix.
 
-**`build_Uk(V_k)`** — Returns a closure `(k, q) -> Matrix{ComplexF64}` of shape $(d^2\times d^2)$ assembling the antisymmetrized HF matrix from all four Wick channels (Theory §4). Used in the general path.
+**`build_Wr_B(mats_b, taus_b)`** — Assembles Case B kernels. Returns `(hartree, fock)` where `hartree` is `(mats, delta)` and `fock` is a $(d^2\!\times\!d^2)$ matrix (q-independent).
 
-### 3. Self-Consistent Field Iteration
+**`build_Wr_C(mats_c, taus_c)`** — Assembles Case C kernels, split by physical channel. Returns `(hartree, fock)` where both are `(mats, delta)` with $(d^2\!\times\!d^2)$ kernels. The Hartree channel (terms $W^{cdab}(-r)+W^{abcd}(-r)$) is always applied; the Fock channel ($W^{cbad}(-r)+W^{adcb}(-r)$) is skipped when `include_fock=false`. Both channels contract with $G(-\boldsymbol{\tau}) = G(\boldsymbol{\tau})^\dagger$.
 
-**`build_heff_k!(H_k, T_k, V_r, G_k, G_r, kgrid)`** — Builds $H^\text{eff}(\mathbf{q}) = T(\mathbf{q}) + \Sigma(\mathbf{q})$ in-place. Automatically detects the $\boldsymbol{\tau}$ structure of `V_r` and selects the appropriate path:
-- **Case A** (Theory §6.1): $O(N_k \log N_k)$, FFT with $[W(\mathbf{r})+W(-\mathbf{r})]\cdot G(\mathbf{r})$.
-- **Case B** (Theory §6.2): $O(N_k \log N_k)$, FFT with $[W(-\mathbf{r})+W(\mathbf{r})]\cdot G(\mathbf{r})$.
-- **Case C** (Theory §6.3): $O(N_k \log N_k)$, FFT with $W(-\mathbf{r})\cdot G(-\mathbf{r})$.
-- **General path** (Theory §4): $O(N_k^2 d^4)$, direct summation via `build_Uk`.
+**`build_Vk(V_r)`** — Returns a closure `(k1,k2,k3) -> Array{ComplexF64,4}` for the general three-momentum kernel. Only used for interactions not in cases A/B/C.
 
-**`solve_hfk(dofs, lattice, onebody, twobody, n_electrons)`** — Public entry point. Runs the full SCF loop described in Theory §5 and returns a `NamedTuple` with fields `G_k`, `G_r`, `eigenvalues`, `eigenvectors`, `energies` (band / interaction / total), `mu`, `ncond`, `kgrid`, `converged`, `iterations`, and `residual`.
+**`build_Uk(V_k)`** — Returns a closure `(k,q) -> Matrix{ComplexF64}` of shape $(d^2\!\times\!d^2)$ assembling the antisymmetrized HF matrix (all four Wick channels, Theory §4). Used in the general $O(N_k^2 d^4)$ path.
 
-Supports linear mixing and DIIS acceleration, multiple random restarts with lowest-energy selection, and finite-temperature Fermi-Dirac occupation.
+### 3. k-point Generation
 
-> **To be added**: detailed step-by-step description of the SCF loop (initialization, $k$-point Hamiltonian construction, diagonalization, Green's function update, mixing, convergence criterion, and output fields) — pending completion of the code implementation.
+**`build_kpoints(unitcell_vectors, box_size)`** — Generates the uniform $\mathbf{k}$-grid from direct lattice vectors $\{a_i\}$ and supercell size $\{n_i\}$:
+
+$$\mathbf{k} = \sum_i \frac{m_i}{n_i}\,\mathbf{b}_i, \quad m_i \in \{0,\ldots,n_i-1\}$$
+
+where $\mathbf{b}_i$ are reciprocal lattice vectors ($a_i\cdot b_j = 2\pi\delta_{ij}$). Alternatively, any `Vector{Vector{Float64}}` of k-points (e.g. a high-symmetry path) can be passed directly to `solve_hfk`.
+
+### 4. Self-Consistent Field Iteration
+
+**Why direct Fourier sum instead of FFT.** For cases A/B/C, the self-energy is:
+
+$$\Sigma^{ab}(\mathbf{q}) = \sum_{\boldsymbol{\tau}} \left[\sum_{cd} K^{ab,cd}(\boldsymbol{\tau})\,G^{cd}(\boldsymbol{\tau})\right] e^{i\mathbf{q}\cdot\boldsymbol{\tau}}$$
+
+where $G(\boldsymbol{\tau}) = \frac{1}{N_k}\sum_{\mathbf{k}} G(\mathbf{k})\,e^{-i\mathbf{k}\cdot\boldsymbol{\tau}}$. The outer sum runs over at most $N_\tau$ non-zero interaction displacements (typically 2–20), so the total cost is $O(N_\tau N_k d^2)$. FFT would require a regular dual grid of exactly $N_k$ real-space points and cannot handle arbitrary k-point sets (e.g. high-symmetry lines). Direct sum is simpler and more flexible.
+
+**`green_k_to_tau!(G_taus, G_k, kpoints, taus)`** — In-place direct Fourier sum: for each $\boldsymbol{\tau}$ in `taus`, accumulates $G(\boldsymbol{\tau}) = \frac{1}{N_k}\sum_k G(k)\,e^{-ik\cdot\tau}$ into the pre-allocated matrices in `G_taus`. Clears buffers before accumulating.
+
+**`build_heff_k!(H_k, T_k_func, wr_A, wr_B, wr_C, V_k_func, G_k, kpoints, G_taus_buf, g_adj_buf, f_buf, taus_needed, tau_idx; include_fock)`** — Builds $H^\text{eff}(\mathbf{q})$ in-place for all $\mathbf{q}$ simultaneously. Pre-allocated buffers (`G_taus_buf`, `g_adj_buf`, `f_buf`) are reused every SCF iteration. The inner $\mathbf{q}$-accumulation loop is parallelized with `Threads.@threads`. Case breakdown:
+- **Case A Hartree**: $\mathbf{q}$-independent; $+\tfrac{1}{2}K_H\cdot\text{vec}(\bar{G})$
+- **Case A Fock**: $\mathbf{q}$-dependent; $-\tfrac{1}{2}\sum_\tau K(\tau)\cdot\text{vec}(G(\tau))\cdot e^{iq\cdot\tau}$
+- **Case B Hartree**: $\mathbf{q}$-dependent; $+\tfrac{1}{2}\sum_\tau K(\tau)\cdot\text{vec}(G(\tau))\cdot e^{iq\cdot\tau}$
+- **Case B Fock**: $\mathbf{q}$-independent; $-\tfrac{1}{2}K_F\cdot\text{vec}(\bar{G})$
+- **Case C Hartree** (always): $+\tfrac{1}{2}\sum_\tau K_H(\tau)\cdot\text{vec}(G(\tau)^\dagger)\cdot e^{iq\cdot\tau}$
+- **Case C Fock** (if `include_fock`): $-\tfrac{1}{2}\sum_\tau K_F(\tau)\cdot\text{vec}(G(\tau)^\dagger)\cdot e^{iq\cdot\tau}$
+- **General**: $O(N_k^2 d^4)$ via `build_Uk`
+
+**`diagonalize_heff_k(H_k)`** — Diagonalizes $H^\text{eff}(k)$ at each k-point with `Threads.@threads`. Returns `(evals, evecs)` of shapes `(d, Nk)` and `(d, d, Nk)`.
+
+**`find_chemical_potential_k(evals, n_electrons, temperature)`** — Finds $\mu$ by midgap rule ($T=0$) or bisection on the global Fermi-Dirac sum ($T>0$).
+
+**`update_green_k(evecs, evals, mu, temperature)`** — Constructs
+
+$$G^{ab}(\mathbf{k}) = \sum_n f(\varepsilon_{n\mathbf{k}}-\mu)\,u_{a,n}^*(\mathbf{k})\,u_{b,n}(\mathbf{k})$$
+
+In matrix form: $G(k) = \overline{V\,\mathrm{diag}(f)\,V^\dagger}$ where $V$ is the eigenvector matrix. Returns shape `(d, d, Nk)`.
+
+**`calculate_energies_k(evals, mu, temperature, G_k, H_k, T_k_func, kpoints)`** — Returns `(band, interaction, total)` energies:
+$$E_\text{band} = \frac{1}{N_k}\sum_{k,n}\varepsilon_{kn}\,f_{kn}, \qquad E_\text{int} = -\frac{1}{2N_k}\sum_k \mathrm{Re}\,\mathrm{Tr}\!\left[(H^\text{eff}(k)-T(k))\,G(k)\right]$$
+
+### 5. Public API
+
+**`solve_hfk(dofs, onebody, twobody, kpoints, n_electrons; kwargs...)`** — Public entry point.
+
+**Arguments:**
+- `dofs::SystemDofs`: Internal DOFs of one magnetic unit cell.
+- `onebody`, `twobody`: Results of `generate_onebody`/`generate_twobody`.
+- `kpoints::Vector{Vector{Float64}}`: k-points (use `build_kpoints` for uniform grids, or provide any custom set).
+- `n_electrons::Int`: Total electron count across all k-points.
+
+**Keyword arguments:** `temperature`, `max_iter`, `tol`, `diis_m`, `G_init`, `ene_cutoff`, `n_restarts`, `seed`, `include_fock`, `verbose`.
+
+**Returns** `NamedTuple` with: `G_k` (shape `(d,d,Nk)`), `eigenvalues` (shape `(d,Nk)`), `eigenvectors` (shape `(d,d,Nk)`), `energies` (`(band, interaction, total)`), `mu`, `kpoints`, `converged`, `iterations`, `residual`, `ncond`.
+
+Runs full SCF with DIIS mixing and multi-restart (lowest-energy converged result selected). Preprocessing (`build_Tr`, `build_Vr`, classification, kernel assembly) is done once before all restarts.

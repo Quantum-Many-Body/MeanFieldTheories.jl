@@ -352,12 +352,17 @@ function _run_scf(
     G_hist = Vector{Matrix{T}}()   # DIIS history
     R_hist = Vector{Matrix{T}}()
 
+    GT = promote_type(eltype(t_matrix), T)
+    h_eff = Matrix{GT}(undef, N, N)
+    Uv    = Vector{GT}(undef, N * N)
+
     for iter in 1:max_iter
         iteration = iter
         copyto!(G_old, G)
 
         t0 = Int64(time_ns())
-        h_eff = t_matrix + reshape(U_matrix * vec(G), N, N)
+        mul!(Uv, U_matrix, vec(G))
+        h_eff .= t_matrix .+ reshape(Uv, N, N)
         _accum!(timings, "build_h_eff", Int64(time_ns()) - t0)
 
         t0 = Int64(time_ns())
@@ -479,7 +484,7 @@ function diagonalize_blocks!(
     eigenvectors::Vector{<:AbstractMatrix}
 )
     for (i, block) in enumerate(blocks)
-        eig = eigen(Hermitian(h_eff[block, block]))
+        eig = eigen(Hermitian(@view h_eff[block, block]))
         eigenvalues[i]  .= eig.values
         eigenvectors[i] .= eig.vectors
     end
@@ -541,7 +546,7 @@ function update_green(
         # T=0: f_n = θ(n_occ - n), i.e. occupy the lowest n_occ eigenstates
         for (idx, n_occ) in enumerate(block_occ)
             n_occ == 0 && continue
-            U_occ = eigenvectors[idx][:, 1:n_occ]          # (block_size × n_occ)
+            U_occ = @view eigenvectors[idx][:, 1:n_occ]    # (block_size × n_occ)
             G[blocks[idx], blocks[idx]] .= conj(U_occ) * transpose(U_occ)
         end
     else
@@ -620,21 +625,21 @@ function find_chemical_potentials(
     end
 
     # Δn(μ) = n(μ) - n_target  and its derivative
-    # n_eigen[j] = Σ_i |U_ij|² (= 1 for normalized columns, but computed explicitly for safety)
-    delta_n(evals, evecs, μ, n_occ) =
-        dot(vec(sum(abs2, evecs, dims=1)), fermi.(evals, μ)) - n_occ
-    ddelta_n(evals, evecs, μ) =
-        dot(vec(sum(abs2, evecs, dims=1)), dfermi.(evals, μ))
+    # col_norms[j] = Σ_i |U_ij|² (= 1 for normalized columns, but computed explicitly for safety)
+    delta_n(evals, col_norms, μ, n_occ) =
+        dot(col_norms, fermi.(evals, μ)) - n_occ
+    ddelta_n(evals, col_norms, μ) =
+        dot(col_norms, dfermi.(evals, μ))
 
     # Step 1: Bisection — reliable if root is bracketed within [ε_min, ε_max]
-    function find_mu_bisection(evals, evecs, n_occ; tol=2e-12, max_iter=100)
-        f1 = delta_n(evals, evecs, evals[1], n_occ)
-        f2 = delta_n(evals, evecs, evals[end], n_occ)
+    function find_mu_bisection(evals, col_norms, n_occ; tol=2e-12, max_iter=100)
+        f1 = delta_n(evals, col_norms, evals[1], n_occ)
+        f2 = delta_n(evals, col_norms, evals[end], n_occ)
         f1 * f2 >= 0 && return (nothing, false)    # root not bracketed
         lo, hi = evals[1], evals[end]
         for _ in 1:max_iter
             mid = (lo + hi) / 2
-            fm = delta_n(evals, evecs, mid, n_occ)
+            fm = delta_n(evals, col_norms, mid, n_occ)
             abs(fm) < tol && return (mid, true)
             fm > 0 ? (hi = mid) : (lo = mid)
         end
@@ -642,12 +647,12 @@ function find_chemical_potentials(
     end
 
     # Step 2: Newton's method — fast convergence, used as fallback
-    function find_mu_newton(evals, evecs, n_occ; tol=1.48e-8, max_iter=50)
+    function find_mu_newton(evals, col_norms, n_occ; tol=1.48e-8, max_iter=50)
         μ = evals[1]                               # initial guess: lowest eigenvalue
         for _ in 1:max_iter
-            dn = delta_n(evals, evecs, μ, n_occ)
+            dn = delta_n(evals, col_norms, μ, n_occ)
             abs(dn) < tol && return (μ, true)
-            ddn = ddelta_n(evals, evecs, μ)
+            ddn = ddelta_n(evals, col_norms, μ)
             abs(ddn) < 1e-14 && return (μ, false)  # flat derivative, cannot continue
             μ -= dn / ddn
         end
@@ -656,8 +661,9 @@ function find_chemical_potentials(
 
     mu_list = Vector{Float64}(undef, length(blocks))
     for (i, (evals, evecs, n_occ)) in enumerate(zip(eigenvalues, eigenvectors, block_occ))
-        μ, ok = find_mu_bisection(evals, evecs, n_occ)
-        ok || ((μ, ok) = find_mu_newton(evals, evecs, n_occ))
+        col_norms = vec(sum(abs2, evecs, dims=1))
+        μ, ok = find_mu_bisection(evals, col_norms, n_occ)
+        ok || ((μ, ok) = find_mu_newton(evals, col_norms, n_occ))
         ok || error("find_chemical_potentials: not converged for block $i (N_occ=$n_occ)")
         mu_list[i] = μ
     end

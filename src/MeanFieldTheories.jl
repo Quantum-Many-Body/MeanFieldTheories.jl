@@ -33,6 +33,8 @@ H = build_onebody_matrix(dofs, hopping)
 """
 module MeanFieldTheories
 
+using StaticArrays
+
 # Export quantum system functionality
 include("quantumsystem/freedom.jl")
 include("quantumsystem/lattice.jl")

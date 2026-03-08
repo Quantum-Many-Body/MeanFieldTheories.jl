@@ -20,8 +20,8 @@ Represents a lattice structure mapping position states to real-space coordinates
 # Fields
 - `position_dofs::Vector{Dof}`: Degrees of freedom that define positions
 - `position_states::Vector{Q}`: All valid position states
-- `coordinates::Vector{Vector{T}}`: Coordinate for each position state (length D)
-- `supercell_vectors::Union{Nothing, Vector{Vector{T}}}`: Supercell vectors for PBC (optional)
+- `coordinates::Vector{SVector{D,T}}`: Coordinate for each position state (length D)
+- `supercell_vectors::Union{Nothing, Vector{SVector{D,T}}}`: Supercell vectors for PBC (optional)
 
 # Notes
 - `position_states[i]` corresponds to `coordinates[i]`
@@ -40,19 +40,31 @@ lattice = Lattice(position_dofs, position_states, coordinates)
 struct Lattice{D, Q<:QuantumNumber, T<:Real}
     position_dofs::Vector{Dof}
     position_states::Vector{Q}
-    coordinates::Vector{Vector{T}}
-    supercell_vectors::Union{Nothing, Vector{Vector{T}}}
+    coordinates::Vector{SVector{D,T}}
+    supercell_vectors::Union{Nothing, Vector{SVector{D,T}}}
+end
 
-    # Inner constructor that infers type parameters
-    function Lattice(
-        position_dofs::Vector{Dof},
-        position_states::Vector{Q},
-        coordinates::Vector{Vector{T}};
-        supercell_vectors::Union{Nothing, Vector{Vector{T}}} = nothing
-    ) where {Q<:QuantumNumber, T<:Real}
-        D = length(coordinates[1])
-        new{D, Q, T}(position_dofs, position_states, coordinates, supercell_vectors)
-    end
+# Public constructor: accepts Vector{Vector{T}} and converts to SVector (backward compatible)
+function Lattice(
+    position_dofs::Vector{Dof},
+    position_states::Vector{Q},
+    coordinates::Vector{Vector{T}};
+    supercell_vectors::Union{Nothing, Vector{Vector{T}}} = nothing
+) where {Q<:QuantumNumber, T<:Real}
+    D = length(coordinates[1])
+    sv_coords    = SVector{D,T}.(coordinates)
+    sv_supercell = isnothing(supercell_vectors) ? nothing : SVector{D,T}.(supercell_vectors)
+    Lattice{D,Q,T}(position_dofs, position_states, sv_coords, sv_supercell)
+end
+
+# Internal constructor: already-converted SVectors (used by tiling constructor)
+function Lattice(
+    position_dofs::Vector{Dof},
+    position_states::Vector{Q},
+    coordinates::Vector{SVector{D,T}};
+    supercell_vectors::Union{Nothing, Vector{SVector{D,T}}} = nothing
+) where {D, Q<:QuantumNumber, T<:Real}
+    Lattice{D,Q,T}(position_dofs, position_states, coordinates, supercell_vectors)
 end
 
 """
@@ -161,8 +173,8 @@ function Lattice(
     # Number of unit cells
     n_cells = prod(box_size)
 
-    # Compute supercell vectors
-    supercell_vectors = [rd(box_size[i] .* unitcell_vectors[i]) for i in 1:D]
+    # Compute supercell vectors (convert user-provided Vector{Vector{T}} to SVector)
+    supercell_vectors = SVector{D,T}[rd(SVector{D,T}(box_size[i] .* unitcell_vectors[i])) for i in 1:D]
 
     # Create new DOFs: expand first DOF's size, keep others
     first_dof = unitcell.position_dofs[1]
@@ -174,15 +186,15 @@ function Lattice(
     # Generate position_states and coordinates
     N = QuantumNumber{all_names, NTuple{length(all_names), Int}}
     position_states = N[]
-    coordinates = Vector{T}[]
+    sv_coordinates  = SVector{D,T}[]
 
     # Iterate over all unit cells (linear index)
     cell_idx = 1
     for indices in Iterators.product([1:s for s in box_size]...)
         # Calculate unit cell origin: R0 = (i1-1)*a1 + (i2-1)*a2 + ...
-        R0 = zeros(T, D)
+        R0 = zero(SVector{D,T})
         for (dim, i) in enumerate(indices)
-            R0 .+= (i - 1) .* unitcell_vectors[dim]
+            R0 = R0 + (i - 1) * unitcell_vectors[dim]
         end
         R0 = rd(R0)
 
@@ -194,14 +206,14 @@ function Lattice(
             push!(position_states, QuantumNumber(new_nt))
 
             # Calculate coordinate
-            new_coord = rd(R0 .+ cell_coord)
-            push!(coordinates, new_coord)
+            new_coord = rd(R0 + cell_coord)
+            push!(sv_coordinates, new_coord)
         end
 
         cell_idx += 1
     end
 
-    return Lattice(new_dofs, position_states, coordinates; supercell_vectors=supercell_vectors)
+    return Lattice(new_dofs, position_states, sv_coordinates; supercell_vectors=supercell_vectors)
 end
 
 #==================== Bond Specification ====================#
@@ -213,9 +225,9 @@ Represents a bond connecting one or more sites.
 
 # Fields
 - `states::Vector{Q}`: Position states (length determines bond order: 1=onsite, 2=two-body, etc.)
-- `coordinates::Vector{Vector{T}}`: Physical (unwrapped) coordinates for each site.
+- `coordinates::Vector{SVector{D,T}}`: Physical (unwrapped) coordinates for each site.
   For periodic bonds these may lie outside the simulation cell.
-- `icoordinates::Vector{Vector{T}}`: Unit-cell origin for each site.
+- `icoordinates::Vector{SVector{D,T}}`: Unit-cell origin for each site.
   `icoordinates[n]` is the lattice vector of the unit cell that contains `coordinates[n]`.
   For intra-cell bonds all entries are zero vectors. For bonds that cross a periodic
   boundary, the entry for the image site carries the lattice shift, e.g. `[-2.0, 0.0]`.
@@ -232,17 +244,26 @@ bond = Bond([state1, state2], [coord1, coord2])
 bond = Bond([state1, state2], [coord1, coord2], [[0.0, 0.0], [-2.0, 0.0]])
 ```
 """
-struct Bond{Q<:QuantumNumber, T<:Real}
+struct Bond{Q<:QuantumNumber, T<:Real, D}
     states::Vector{Q}
-    coordinates::Vector{Vector{T}}
-    icoordinates::Vector{Vector{T}}
+    coordinates::Vector{SVector{D,T}}
+    icoordinates::Vector{SVector{D,T}}
 end
 
-# Backward-compatible constructor: icoordinates default to zero vectors
+# Public constructors: accept Vector{Vector{T}} and convert to SVector (backward compatible)
+function Bond(
+    states::Vector{Q},
+    coordinates::Vector{Vector{T}},
+    icoordinates::Vector{Vector{T}}
+) where {Q<:QuantumNumber, T<:Real}
+    D = length(coordinates[1])
+    Bond{Q,T,D}(states, SVector{D,T}.(coordinates), SVector{D,T}.(icoordinates))
+end
+
 function Bond(states::Vector{Q}, coordinates::Vector{Vector{T}}) where {Q<:QuantumNumber, T<:Real}
     D = length(coordinates[1])
-    icoords = [zeros(T, D) for _ in states]
-    return Bond{Q, T}(states, coordinates, icoords)
+    sv = SVector{D,T}.(coordinates)
+    Bond{Q,T,D}(states, sv, [zero(SVector{D,T}) for _ in states])
 end
 
 function Base.show(io::IO, bond::Bond)
@@ -304,7 +325,7 @@ function bonds(
     boundary::NTuple{D, Symbol},
     neighbors::Vector{Int}
 ) where {D, Q, T}
-    result = Bond{Q, T}[]
+    result = Bond{Q, T, D}[]
     for n in neighbors
         append!(result, bonds(lattice, boundary, n))
     end
@@ -319,7 +340,7 @@ function bonds(
     tolerance::Real = 1e-6
 ) where {D, Q, T}
     supercell_vectors = _get_supercell_vectors(lattice)
-    result = Bond{Q, T}[]
+    result = Bond{Q, T, D}[]
     for d in distances
         append!(result, _generate_distance_bonds(lattice, supercell_vectors, boundary, d, tolerance))
     end
@@ -336,18 +357,19 @@ end
 
 # Helper: generate onsite bonds
 function _generate_onsite_bonds(lattice::Lattice{D, Q, T}) where {D, Q, T}
-    result = Bond{Q, T}[]
+    result = Bond{Q, T, D}[]
+    zero_sv = zero(SVector{D,T})
     for (state, coord) in zip(lattice.position_states, lattice.coordinates)
-        push!(result, Bond([state], [coord]))
+        push!(result, Bond{Q,T,D}([state], [coord], [zero_sv]))
     end
     return result
 end
 
 # Helper: compute minimum image distance considering PBC
 function _min_image_distance(
-    coord1::Vector{T},
-    coord2::Vector{T},
-    supercell_vectors::Vector{Vector{T}},
+    coord1::SVector{D,T},
+    coord2::SVector{D,T},
+    supercell_vectors::Vector{SVector{D,T}},
     boundary::NTuple{D, Symbol}
 ) where {D, T}
     _, dist, _ = _min_image_delta(coord1, coord2, supercell_vectors, boundary)
@@ -358,19 +380,19 @@ end
 # Returns (delta, dist, icell_shift) where icell_shift is the lattice vector
 # of the periodic image used — i.e. the unit-cell origin of coord2's image.
 function _min_image_delta(
-    coord1::Vector{T},
-    coord2::Vector{T},
-    supercell_vectors::Vector{Vector{T}},
+    coord1::SVector{D,T},
+    coord2::SVector{D,T},
+    supercell_vectors::Vector{SVector{D,T}},
     boundary::NTuple{D, Symbol}
 ) where {D, T}
     min_dist    = Inf
-    best_delta  = coord2 .- coord1
+    best_delta  = coord2 - coord1
     best_shifts = ntuple(_ -> 0, D)
 
     for shifts in Iterators.product([boundary[i] == :p ? (-1, 0, 1) : (0,) for i in 1:D]...)
-        delta = coord2 .- coord1
+        delta = coord2 - coord1
         for (dim, shift) in enumerate(shifts)
-            delta .+= shift .* supercell_vectors[dim]
+            delta = delta + shift * supercell_vectors[dim]
         end
         dist = sqrt(sum(delta .^ 2))
         if dist < min_dist
@@ -381,7 +403,7 @@ function _min_image_delta(
     end
 
     # icell_shift: the lattice vector of the cell containing coord2's image
-    icell_shift = sum(best_shifts[d] .* supercell_vectors[d] for d in 1:D)
+    icell_shift = sum(best_shifts[d] * supercell_vectors[d] for d in 1:D)
 
     return rd(best_delta), rd(min_dist), rd(icell_shift)
 end
@@ -389,7 +411,7 @@ end
 # Helper: generate neighbor bonds by order
 function _generate_neighbor_bonds(
     lattice::Lattice{D, Q, T},
-    supercell_vectors::Vector{Vector{T}},
+    supercell_vectors::Vector{SVector{D,T}},
     boundary::NTuple{D, Symbol},
     neighbor_order::Int
 ) where {D, Q, T}
@@ -430,7 +452,7 @@ The first non-zero component must be positive.
 
 Used to generate unidirectional bonds, avoiding duplicates like (i→j) and (j→i).
 """
-function is_positive_direction(delta::Vector{T}) where T
+function is_positive_direction(delta::AbstractVector{T}) where T
     for d in delta
         rd_d = rd(d)
         if rd_d > 0
@@ -450,14 +472,14 @@ end
 # a "positive" direction (to keep exactly one of each i↔j pair).
 function _generate_distance_bonds(
     lattice::Lattice{D, Q, T},
-    supercell_vectors::Vector{Vector{T}},
+    supercell_vectors::Vector{SVector{D,T}},
     boundary::NTuple{D, Symbol},
     distance::Real,
     tolerance::Real
 ) where {D, Q, T}
-    result = Bond{Q, T}[]
-    n_sites = length(lattice.position_states)
-    zero_vec = zeros(T, D)
+    result   = Bond{Q, T, D}[]
+    n_sites  = length(lattice.position_states)
+    zero_sv  = zero(SVector{D,T})
 
     # Shift ranges: ±1 for periodic directions, 0 only for open directions.
     shift_ranges = [boundary[d] == :p ? (-1, 0, 1) : (0,) for d in 1:D]
@@ -468,24 +490,24 @@ function _generate_distance_bonds(
 
             for shifts in Iterators.product(shift_ranges...)
                 # Cell-origin displacement for this periodic image of site j.
-                icell_shift = zeros(T, D)
+                icell_shift = zero_sv
                 for (d, s) in enumerate(shifts)
-                    icell_shift .+= s .* supercell_vectors[d]
+                    icell_shift = icell_shift + s * supercell_vectors[d]
                 end
 
-                delta = rd(lattice.coordinates[j] .- lattice.coordinates[i] .+ icell_shift)
+                delta = rd(lattice.coordinates[j] - lattice.coordinates[i] + icell_shift)
                 dist  = rd(sqrt(sum(delta .^ 2)))
 
                 abs(dist - distance) < tolerance || continue
                 is_positive_direction(delta)      || continue
 
                 coord1 = lattice.coordinates[i]
-                coord2 = rd(coord1 .+ delta)
+                coord2 = rd(coord1 + delta)
 
-                push!(result, Bond(
+                push!(result, Bond{Q,T,D}(
                     [lattice.position_states[i], lattice.position_states[j]],
                     [coord1, coord2],
-                    [zero_vec, rd(icell_shift)]
+                    [zero_sv, rd(icell_shift)]
                 ))
             end
         end

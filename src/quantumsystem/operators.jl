@@ -223,6 +223,50 @@ function _reorder_to_ca_alternating_with_positions(
     return sign, ops, positions
 end
 
+"""
+    _reorder_to_ca_alternating_with_two_positions(ops, ipos, phys_pos)
+        -> (sign, reordered_ops, reordered_ipos, reordered_phys_pos)
+
+Same bubble-sort as `_reorder_to_ca_alternating_with_positions`, but permutes two parallel
+position vectors (`ipos` and `phys_pos`) in a single sort pass, avoiding the cost of
+running the sort twice when both unit-cell and physical positions are needed.
+"""
+function _reorder_to_ca_alternating_with_two_positions(
+    ops::Vector{<:FermionOp},
+    ipos::Vector{<:AbstractVector{<:Real}},
+    phys_pos::Vector{<:AbstractVector{<:Real}}
+)
+    n = length(ops)
+    ops      = copy(ops)
+    ipos     = copy(ipos)
+    phys_pos = copy(phys_pos)
+    sign = 1
+
+    target_dag = [isodd(i) for i in 1:n]
+
+    for i in 1:n
+        j = i
+        while j <= n && ops[j].dag != target_dag[i]
+            j += 1
+        end
+
+        if j > n
+            error("Cannot reorder: wrong number of c† vs c operators. " *
+                  "Expected $(count(target_dag)) creation and $(n - count(target_dag)) annihilation operators.")
+        end
+
+        while j > i
+            ops[j-1],      ops[j]      = ops[j],      ops[j-1]
+            ipos[j-1],     ipos[j]     = ipos[j],     ipos[j-1]
+            phys_pos[j-1], phys_pos[j] = phys_pos[j], phys_pos[j-1]
+            sign *= -1
+            j -= 1
+        end
+    end
+
+    return sign, ops, ipos, phys_pos
+end
+
 #==================== General Term Generators ====================#
 
 """
@@ -245,9 +289,9 @@ Generate one-body terms from bonds.
 # Returns
 `NamedTuple` with three parallel `Vector` fields:
 - `.ops::Vector{Operators}`: operator terms
-- `.delta::Vector{Vector{Float64}}`: physical displacement for each term
+- `.delta::Vector{SVector{D,T}}`: physical displacement for each term
   (`bond.coordinates[1] - bond.coordinates[2]`, i.e. site 1 minus site 2)
-- `.irvec::Vector{Vector{Float64}}`: unit-cell displacement for each term
+- `.irvec::Vector{SVector{D,T}}`: unit-cell displacement for each term
   (`bond.icoordinates[2] - bond.icoordinates[1]`); zero for intra-cell bonds,
   non-zero for bonds crossing a periodic boundary
 
@@ -278,16 +322,17 @@ function generate_onebody(
     op_type1, site1, op_type2, site2 = order
     @assert site1 in (1, 2) && site2 in (1, 2) "site indices must be 1 or 2"
 
+    SV         = eltype(first(bonds).coordinates)
     ops_list   = Operators[]
-    delta_list = Vector{Float64}[]
-    irvec_list = Vector{Float64}[]
+    delta_list = SV[]
+    irvec_list = SV[]
 
     for bond in bonds
         @assert length(bond.states) == 2 "One-body generator requires 2-site bonds"
 
         s1, s2   = bond.states
-        delta    = rd(bond.coordinates[1]  .- bond.coordinates[2])
-        irvec    = rd(bond.icoordinates[2] .- bond.icoordinates[1])
+        delta    = rd(bond.coordinates[1]  - bond.coordinates[2])
+        irvec    = rd(bond.icoordinates[2] - bond.icoordinates[1])
         pos_keys = keys(s1)
 
         qn_at_site1 = [qn for qn in dofs.valid_states if all(qn[k] == s1[k] for k in pos_keys)]
@@ -339,10 +384,13 @@ Generate two-body interaction terms from bonds.
   - `(cdag,1, c,4, cdag,3, c,2)` — all four sites distinct (requires 4-site bond)
 
 # Returns
-`NamedTuple` with two parallel `Vector` fields:
+`NamedTuple` with three parallel `Vector` fields:
 - `.ops::Vector{Operators}`: operator terms, already reordered to creation-annihilation
   alternating order (c†c c†c) with the fermionic sign absorbed into the coefficient.
-- `.irvec::Vector{NTuple{3, Vector{Float64}}}`: unit-cell displacements `(τ1, τ2, τ3)`
+- `.delta::Vector{NTuple{3, SVector{D,T}}}`: physical displacements `(δ1, δ2, δ3)`
+  per term in creation-annihilation alternating order, where `δn = coord(op_n) - coord(op_4)`.
+  For onsite / density-density interactions δ1 = δ3 = 0.
+- `.irvec::Vector{NTuple{3, SVector{D,T}}}`: unit-cell displacements `(τ1, τ2, τ3)`
   per term in creation-annihilation alternating order, where `τn = icoord(op_n) - icoord(op_4)`.
   For onsite / density-density interactions τ1 = τ3 = 0.
 
@@ -386,8 +434,10 @@ function generate_twobody(
     n_sites_needed = maximum(sites)
     @assert all(s >= 1 for s in sites) "site indices must be >= 1"
 
+    SV         = eltype(first(bonds).coordinates)
     ops_list   = Operators[]
-    irvec_list = NTuple{3, Vector{Float64}}[]
+    delta_list = NTuple{3, SV}[]
+    irvec_list = NTuple{3, SV}[]
 
     for bond in bonds
         nb = length(bond.states)
@@ -398,7 +448,7 @@ function generate_twobody(
         # c†_i c_j where the direction is from j (last) to i (first): R_i - R_j.
         # Also consistent with irvec: τ_n = icoord(op_n) - icoord(op_4).
         # Empty for 1-site bonds. For 2-site bonds deltas[1] = coord[1] - coord[2].
-        deltas = [rd(bond.coordinates[s] .- bond.coordinates[nb]) for s in 1:nb-1]
+        deltas = [rd(bond.coordinates[s] - bond.coordinates[nb]) for s in 1:nb-1]
 
         # pos_keys: the position-like keys in bond.states (e.g. :site), used to match
         # dofs.valid_states entries to each bond site (ignoring internal DOFs like :spin).
@@ -414,35 +464,53 @@ function generate_twobody(
         # qn_lists = (qn_at[1], qn_at[1], qn_at[2], qn_at[2]).
         qn_lists = ntuple(i -> qn_at[sites[i]], 4)
 
-        # site_icoords[s]: unit-cell lattice vector of bond site s (used to compute
-        # the relative displacements τ1, τ2, τ3 after reordering to creation-annihilation alternating order).
-        site_icoords = [Vector{Float64}(bond.icoordinates[s]) for s in 1:nb]
+        # site_coords[s]: physical (Cartesian) position of bond site s (SVector).
+        # site_icoords[s]: unit-cell lattice vector of bond site s (SVector).
+        site_coords  = bond.coordinates[1:nb]
+        site_icoords = bond.icoordinates[1:nb]
+
+        # Pre-allocate 4-element buffer vectors once per bond; reused across all QN
+        # combinations to avoid repeated container allocations in the inner loop.
+        raw_ops      = Vector{FermionOp}(undef, 4)
+        raw_ipos     = Vector{SV}(undef, 4)
+        raw_phys_pos = Vector{SV}(undef, 4)
 
         for qn1 in qn_lists[1], qn2 in qn_lists[2], qn3 in qn_lists[3], qn4 in qn_lists[4]
             v = value isa Number ? value : value(deltas, qn1, qn2, qn3, qn4)
             iszero(v) && continue
 
-            # Build operators and their corresponding unit-cell positions in original order.
-            raw_ops = FermionOp[op_type1(qn1), op_type2(qn2), op_type3(qn3), op_type4(qn4)]
-            raw_pos = [site_icoords[sites[i]] for i in 1:4]
+            # Fill pre-allocated buffers in original operator order.
+            raw_ops[1] = op_type1(qn1); raw_ops[2] = op_type2(qn2)
+            raw_ops[3] = op_type3(qn3); raw_ops[4] = op_type4(qn4)
+            for i in 1:4
+                raw_ipos[i]     = site_icoords[sites[i]]
+                raw_phys_pos[i] = site_coords[sites[i]]
+            end
 
-            # Reorder to c†c c†c format; positions are permuted in lockstep
-            # so that reord_pos[i] always corresponds to reord_ops[i].
-            sign, reord_ops, reord_pos = _reorder_to_ca_alternating_with_positions(raw_ops, raw_pos)
+            # Single sort pass: reorder to c†c c†c format and permute both position
+            # arrays in lockstep so reord_*pos[i] always corresponds to reord_ops[i].
+            sign, reord_ops, reord_ipos, reord_phys_pos =
+                _reorder_to_ca_alternating_with_two_positions(raw_ops, raw_ipos, raw_phys_pos)
+
+            # δ_n = physical position of op_n minus physical position of op_4 (reference).
+            δ1 = rd(reord_phys_pos[1] - reord_phys_pos[4])
+            δ2 = rd(reord_phys_pos[2] - reord_phys_pos[4])
+            δ3 = rd(reord_phys_pos[3] - reord_phys_pos[4])
 
             # τ_n = unit-cell position of op_n minus unit-cell position of op_4 (reference).
             # Under translational invariance these three relative displacements fully
             # characterize the four-site interaction.
-            τ1 = rd(reord_pos[1] .- reord_pos[4])
-            τ2 = rd(reord_pos[2] .- reord_pos[4])
-            τ3 = rd(reord_pos[3] .- reord_pos[4])
+            τ1 = rd(reord_ipos[1] - reord_ipos[4])
+            τ2 = rd(reord_ipos[2] - reord_ipos[4])
+            τ3 = rd(reord_ipos[3] - reord_ipos[4])
 
             push!(ops_list,   Operators(sign * v, reord_ops))
+            push!(delta_list, (δ1, δ2, δ3))
             push!(irvec_list, (τ1, τ2, τ3))
         end
     end
 
-    return (ops=ops_list, irvec=irvec_list)
+    return (ops=ops_list, delta=delta_list, irvec=irvec_list)
 end
 
 #==================== Matrix/Tensor Construction ====================#
