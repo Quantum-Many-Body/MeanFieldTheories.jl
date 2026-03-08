@@ -59,41 +59,41 @@ Run log:
 ============================================================
 Hartree-Fock SCF Solver
 ============================================================
-Building Hamiltonian  (144 operators)
-           t matrix: (32, 32), nnz = 128      213.982ms
-           U matrix: (1024, 1024), nnz = 64        28.943ms
-System: N = 32, blocks = 1, particles = [16] (total = 16)
-T = 0,  mixing = DIIS(m=8),  tol = 1e-08,  max_iter = 1000
+[23:33:39] Building Hamiltonian  (144 operators)
+               t matrix: (32, 32), nnz = 128      303.417μs
+               U matrix: (1024, 1024), nnz = 64       132.084μs
+  System: N = 32, blocks = 1, particles = [16] (total = 16)
+  T = 0,  mixing = DIIS(m=8),  tol = 1e-08,  max_iter = 1000
 ============================================================
-G initialized   144.500ms
-Iter    1  res = 3.908e-03  E = -24.191984  NCond = 1.4230
-Iter    2  res = 3.601e-03  E = -36.222279  NCond = 16.0000
-Iter    3  res = 1.402e-03  E = -8.867481   NCond = 16.0000
-Iter    4  res = 8.227e-04  E = -10.085860  NCond = 16.0000
-Iter    5  res = 6.719e-04  E = -10.538543  NCond = 16.0000
-Iter   10  res = 1.618e-04  E = -13.119825  NCond = 16.0000
-Iter   19  res = 5.990e-09 < 1.000e-08  CONVERGED
+[23:33:39] G initialized   688.750μs
+[23:33:39] Iter    1  res = 3.904e-03  E = -24.187702  NCond = 1.4307
+[23:33:39] Iter    2  res = 3.567e-03  E = -35.726796  NCond = 16.0000
+[23:33:39] Iter    3  res = 1.213e-03  E = -8.659815  NCond = 16.0000
+[23:33:39] Iter    4  res = 7.604e-04  E = -10.074263  NCond = 16.0000
+[23:33:39] Iter    5  res = 5.674e-04  E = -10.458854  NCond = 16.0000
+[23:33:39] Iter   10  res = 1.073e-04  E = -13.080404  NCond = 16.0000
+[23:33:39] Iter   20  res = 1.138e-09 < 1.000e-08  CONVERGED
 ============================================================
-SCF CONVERGED  (19 iterations)
-  Band energy:        -4.5074871150
-  Interaction energy: -8.0590647077
-  Total energy:       -12.5665518227
+[23:33:39] SCF CONVERGED  (20 iterations)
+  Band energy:        -4.5074927205
+  Interaction energy: -8.0590628824
+  Total energy:       -12.5665556029
   NCond:              16.000000
-  Sz:                 -0.000005
-  μ (block 1):       +1.9999997617
+  Sz:                 +0.000001
+  μ (block 1):       +1.9999999892
 
   ── Timing Summary ────────────────────────────────────────────
   Phase                      Total         Avg   Calls
   ────────────────────────────────────────────────────────
-  build_T                213.982ms   213.982ms       1
-  build_U                 28.943ms    28.943ms       1
-  initialize_green       144.500ms   144.500ms       1
-  build_h_eff             49.124μs     2.585μs      19
-  diagonalize              2.088ms   109.899μs      19
-  update_green           106.000μs     5.578μs      19
-  calc_energies           53.664μs     2.981μs      18
+  build_T                303.417μs   303.417μs       1
+  build_U                132.084μs   132.084μs       1
+  initialize_green       688.750μs   688.750μs       1
+  build_h_eff            150.002μs     7.500μs      20
+  diagonalize              6.580ms   329.012μs      20
+  update_green           395.210μs    19.760μs      20
+  calc_energies          234.918μs    12.364μs      19
   ────────────────────────────────────────────────────────
-  solve_hfr (total)         1.879 s      1.879 s        1
+  solve_hfr (total)       15.241ms    15.241ms       1
   ────────────────────────────────────────────────────────
 ```
 ### Momentum-Space Hartree-Fock Approximation (`solve_hfk`)
