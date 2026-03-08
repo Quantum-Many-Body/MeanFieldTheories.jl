@@ -99,7 +99,7 @@ SCF CONVERGED  (19 iterations)
 ```
 ### Momentum-Space Hartree-Fock Approximation (`solve_hfk`)
 
-t-V model ($$H = -t Σ_{<ij>,σ} c†_{iσ}c_{jσ} + V Σ_{i≠j,σσ'} n_{iσ}n_{jσ'}$$, $$t=1$$, $$V=4$$ on  a 4×4 square lattice) solved by momentum-space Hartree-Fock. 
+t-V model ($$t=1$$, $$V=4$$ on  a 4×4 square lattice) solved by momentum-space Hartree-Fock. 
 
 ```julia
 using MeanFieldTheories
