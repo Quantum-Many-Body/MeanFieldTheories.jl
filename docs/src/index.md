@@ -170,7 +170,7 @@ Hartree-Fock SCF Solver (momentum space)
 
 ## Benchmark
 
-### CDW-SDW Phase Diagram of Extended Hubbard Model
+### SDW-CDW Phase Diagram of Extended Hubbard Model
 
 This benchmark reproduces the phase diagram of the extended Hubbard model on a 2D square lattice at half-filling:
 

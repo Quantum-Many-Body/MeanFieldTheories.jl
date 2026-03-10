@@ -19,7 +19,7 @@ makedocs(;
         "Hartree-Fock Approximation" => [
             "Real Space"      => "hartreefock_real.md",
             "Momentum Space"  => "hartreefock_momentum.md",
-            "Benchmark: CDW-SDW" => "SDW_CDW.md",
+            "Benchmark: SDW-CDW" => "SDW_CDW.md",
         ],
         "Single-Mode Approximation" => "singlemode.md",
         "API Reference" => "api.md",

@@ -1,4 +1,4 @@
-# Benchmark: CDW-SDW Phase Diagram of Extended Hubbard Model
+# Benchmark: SDW-CDW Phase Diagram of Extended Hubbard Model
 
 This benchmark demonstrates the calculation of the phase diagram of the extended Hubbard model on a 2D square lattice at half-filling. The calculation reproduces the competition between antiferromagnetic (SDW/AFM) and charge density wave (CDW/CO) orders.
 
