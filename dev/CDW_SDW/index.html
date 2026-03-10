@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Benchmark: CDW-SDW · MeanFieldTheories.jl</title><meta name="title" content="Benchmark: CDW-SDW · MeanFieldTheories.jl"/><meta property="og:title" content="Benchmark: CDW-SDW · MeanFieldTheories.jl"/><meta property="twitter:title" content="Benchmark: CDW-SDW · MeanFieldTheories.jl"/><meta name="description" content="Documentation for MeanFieldTheories.jl."/><meta property="og:description" content="Documentation for MeanFieldTheories.jl."/><meta property="twitter:description" content="Documentation for MeanFieldTheories.jl."/><meta property="og:url" content="https://Quantum-Many-Body.github.io/MeanFieldTheories.jl/CDW_SDW/"/><meta property="twitter:url" content="https://Quantum-Many-Body.github.io/MeanFieldTheories.jl/CDW_SDW/"/><link rel="canonical" href="https://Quantum-Many-Body.github.io/MeanFieldTheories.jl/CDW_SDW/"/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><a class="docs-logo" href="../"><img src="../assets/logo.png" alt="MeanFieldTheories.jl logo"/></a><div class="docs-package-name"><span class="docs-autofit"><a href="../">MeanFieldTheories.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li><a class="tocitem" href="../quantumsystem/">Quantum System</a></li><li><span class="tocitem">Hartree-Fock Approximation</span><ul><li><a class="tocitem" href="../hartreefock_real/">Real Space</a></li><li><a class="tocitem" href="../hartreefock_momentum/">Momentum Space</a></li><li class="is-active"><a class="tocitem" href>Benchmark: CDW-SDW</a><ul class="internal"><li><a class="tocitem" href="#Physical-Model"><span>Physical Model</span></a></li><li><a class="tocitem" href="#Method"><span>Method</span></a></li><li><a class="tocitem" href="#Code"><span>Code</span></a></li><li><a class="tocitem" href="#Running-the-Benchmark"><span>Running the Benchmark</span></a></li><li><a class="tocitem" href="#Results"><span>Results</span></a></li><li><a class="tocitem" href="#References"><span>References</span></a></li></ul></li></ul></li><li><a class="tocitem" href="../singlemode/">Single-Mode Approximation</a></li><li><a class="tocitem" href="../api/">API Reference</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Hartree-Fock Approximation</a></li><li class="is-active"><a href>Benchmark: CDW-SDW</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Benchmark: CDW-SDW</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/Quantum-Many-Body/MeanFieldTheories.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/Quantum-Many-Body/MeanFieldTheories.jl/blob/main/docs/src/CDW_SDW.md#" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Benchmark:-CDW-SDW-Phase-Diagram-of-Extended-Hubbard-Model"><a class="docs-heading-anchor" href="#Benchmark:-CDW-SDW-Phase-Diagram-of-Extended-Hubbard-Model">Benchmark: CDW-SDW Phase Diagram of Extended Hubbard Model</a><a id="Benchmark:-CDW-SDW-Phase-Diagram-of-Extended-Hubbard-Model-1"></a><a class="docs-heading-anchor-permalink" href="#Benchmark:-CDW-SDW-Phase-Diagram-of-Extended-Hubbard-Model" title="Permalink"></a></h1><p>This benchmark demonstrates the calculation of the phase diagram of the extended Hubbard model on a 2D square lattice at half-filling. The calculation reproduces the competition between antiferromagnetic (SDW/AFM) and charge density wave (CDW/CO) orders.</p><h2 id="Physical-Model"><a class="docs-heading-anchor" href="#Physical-Model">Physical Model</a><a id="Physical-Model-1"></a><a class="docs-heading-anchor-permalink" href="#Physical-Model" title="Permalink"></a></h2><p>The extended Hubbard model Hamiltonian is:</p><p class="math-container">\[H = -t \sum_{\langle ij \rangle,\sigma} c^\dagger_{i\sigma}c_{j\sigma} + U \sum_i n_{i\uparrow}n_{i\downarrow} + V \sum_{\langle ij \rangle} n_i n_j\]</p><p>where:</p><ul><li><p class="math-container">\[t\]</p>: nearest-neighbor hopping amplitude</li><li><p class="math-container">\[U\]</p>: on-site Coulomb repulsion</li><li><p class="math-container">\[V\]</p>: nearest-neighbor Coulomb repulsion</li><li><p class="math-container">\[\langle ij \rangle\]</p>: denotes summation over nearest-neighbor bonds</li></ul><p>At half-filling, the model exhibits two distinct phases:</p><ul><li><strong>SDW/AFM phase</strong> (<span>$V/U \lesssim 1/4$</span>): antiferromagnetic order with staggered magnetization <span>$S(\pi,\pi) \neq 0$</span></li><li><strong>CDW/CO phase</strong> (<span>$V/U \gtrsim 1/4$</span>): charge density wave order with staggered charge density <span>$N(\pi,\pi) \neq 0$</span></li></ul><p>The phase boundary is expected at <span>$V_c = U/4$</span>.</p><h2 id="Method"><a class="docs-heading-anchor" href="#Method">Method</a><a id="Method-1"></a><a class="docs-heading-anchor-permalink" href="#Method" title="Permalink"></a></h2><p>The calculation uses <strong>momentum-space unrestricted Hartree-Fock</strong> (<code>solve_hfk</code>) on a <span>$2\times2$</span> magnetic unit cell with a <span>$2\times2$</span> <span>$k$</span>-grid (4 <span>$k$</span>-points). This magnetic unit cell allows for both SDW and CDW order parameters to develop spontaneously.</p><p>For each value of <span>$V$</span>, the SCF calculation is initialized from two biased initial conditions:</p><ol><li><strong>SDW initialization</strong>: sublattice A sites (1,4) have spin-up occupied, sublattice B sites (2,3) have spin-down occupied</li><li><strong>CDW initialization</strong>: sublattice A sites (1,4) are doubly occupied, sublattice B sites (2,3) are empty</li></ol><p>The lower-energy converged state is taken as the ground state.</p><h2 id="Code"><a class="docs-heading-anchor" href="#Code">Code</a><a id="Code-1"></a><a class="docs-heading-anchor-permalink" href="#Code" title="Permalink"></a></h2><pre><code class="language-julia hljs">&quot;&quot;&quot;
+Phase diagram of the extended Hubbard model on the 2D square lattice at half-filling.
+
+  H = -t Σ_{&lt;ij&gt;,σ} c†_{iσ}c_{jσ} + U Σ_i n_{i↑}n_{i↓} + V Σ_{&lt;ij&gt;} n_i n_j
+
+Parameters: t=1, U=4, V ∈ [0, 2] (20 points).
+
+Two phases:
+  - AFM/SDW (V/U ≲ 1/4): staggered magnetization S(π,π) ≠ 0
+  - CO/CDW  (V/U ≳ 1/4): staggered charge density N(π,π) ≠ 0
+
+Method: momentum-space UHF on 2×2 magnetic unit cell (d=8), 2×2 k-grid (4 k-points).
+For each V, SCF is run from two biased initial conditions (SDW and CDW);
+the lower-energy converged state is taken as the ground state.
+Results are saved to res.dat and plotted to CDW_SDW.png.
+
+Note on U coefficient:
+  generate_twobody with k=1 (single site) only generates one spin combination.
+  Since U n↑n↓ = U (n↑n↓ + n↓n↑), we need to multiply by 2.
+  (V with k=2 automatically generates both (i,j) and (j,i) assignments.)
+
+Run :
+    julia --project=benchmark benchmark/CDW_SDW/run.jl
+&quot;&quot;&quot;
+
+using Printf
+using LinearAlgebra
+using MeanFieldTheories
+using Plots
+
+# ── Model parameters ──────────────────────────────────────────────────────────
+const t_ext = 1.0
+const U_ext = 4.0
+const Vs    = range(0.0, 2.0, length=20)
+
+# ── Lattice / DOFs ────────────────────────────────────────────────────────────
+# 2×2 magnetic unit cell: 4 sites × 2 spins → d = 8
+# Sites at (0,0),(1,0),(0,1),(1,1); sublattice Q=(π,π) phases: +1,-1,-1,+1
+dofs = SystemDofs([Dof(:site, 4), Dof(:spin, 2, [:up, :dn])])
+
+unitcell = Lattice([Dof(:site, 4)],
+                   [QN(site=i) for i in 1:4],
+                   [[0.0,0.0],[1.0,0.0],[0.0,1.0],[1.0,1.0]];
+                   supercell_vectors=[[2.0,0.0],[0.0,2.0]])
+
+# Generate nearest-neighbor bonds (both intra-cell and inter-cell)
+nn_bonds     = bonds(unitcell, (:p,:p), 1)
+# Generate onsite bonds (for the U term)
+onsite_bonds = bonds(unitcell, (:p,:p), 0)
+
+# ── One-body term (kinetic energy) ──────────────────────────────────────────
+# Hopping: -t between nearest neighbors, same spin
+onebody = generate_onebody(dofs, nn_bonds,
+    (delta, qn1, qn2) -&gt; qn1.spin == qn2.spin ? -t_ext : 0.0)
+
+# ── k-point grid ─────────────────────────────────────────────────────────────
+# 2×2 k-grid in the magnetic Brillouin zone
+kpoints = build_kpoints([[2.0,0.0],[0.0,2.0]], (2,2))
+Nk      = length(kpoints)
+n_elec  = 4 * Nk   # half-filling: 4 electrons per magnetic unit cell
+
+# ── DOF index map: (site, spin_idx) → linear index ───────────────────────────
+# With [Dof(:site,4), Dof(:spin,2)], valid_states ordering:
+#   [(s=1,↑),(s=2,↑),(s=3,↑),(s=4,↑),(s=1,↓),(s=2,↓),(s=3,↓),(s=4,↓)]
+idx = Dict((qn[:site], qn[:spin]) =&gt; i for (i,qn) in enumerate(dofs.valid_states))
+
+# sublattice phase factor for Q=(π,π): e^{iQ·r_i}
+# site 1 (0,0)→+1, site 2 (1,0)→-1, site 3 (0,1)→-1, site 4 (1,1)→+1
+const sl = [1.0, -1.0, -1.0, 1.0]
+
+# ── Biased initial Green&#39;s functions ─────────────────────────────────────────
+# d = number of degrees of freedom per k-point
+d = length(dofs.valid_states)
+
+# SDW (AFM): sublattice A sites (1,4) → ↑ occupied; sublattice B sites (2,3) → ↓ occupied
+function make_G_sdw()
+    G = zeros(ComplexF64, d, d, Nk)
+    for ki in 1:Nk
+        G[idx[(1,1)], idx[(1,1)], ki] = 1.0   # site 1, ↑
+        G[idx[(4,1)], idx[(4,1)], ki] = 1.0   # site 4, ↑
+        G[idx[(2,2)], idx[(2,2)], ki] = 1.0   # site 2, ↓
+        G[idx[(3,2)], idx[(3,2)], ki] = 1.0   # site 3, ↓
+    end
+    return G
+end
+
+# CDW: sublattice A sites (1,4) doubly occupied; sublattice B sites (2,3) empty
+function make_G_cdw()
+    G = zeros(ComplexF64, d, d, Nk)
+    for ki in 1:Nk
+        G[idx[(1,1)], idx[(1,1)], ki] = 1.0
+        G[idx[(1,2)], idx[(1,2)], ki] = 1.0
+        G[idx[(4,1)], idx[(4,1)], ki] = 1.0
+        G[idx[(4,2)], idx[(4,2)], ki] = 1.0
+    end
+    # tiny distortion to break site-1 / site-4 degeneracy
+    G[idx[(1,1)], idx[(1,1)], 1] += 1e-10
+    return G
+end
+
+# ── Order parameters and structure factors ────────────────────────────────────
+# G_loc = G(r=0) = (1/Nk) Σ_k G_k   (local density matrix within unit cell)
+#
+# S(π,π) = (1/Ncell) Σ_i sl[i] × (n_{i↑} - n_{i↓}) / 2   staggered magnetization
+# N(π,π) = (1/Ncell) Σ_i sl[i] × (n_{i↑} + n_{i↓})       staggered density
+#
+# Wick decomposition for two-site correlators from G_loc:
+#   ⟨n_a n_b⟩ = ⟨n_a⟩⟨n_b⟩ - G_loc[a,b]G_loc[b,a] + δ_{ab}⟨n_a⟩
+function observables(G_k)
+    # Average Green&#39;s function over all k-points to get local density matrix
+    G_loc = dropdims(sum(G_k, dims=3), dims=3) ./ Nk
+
+    S_q = 0.0;  N_q = 0.0
+    S_sf = 0.0; N_sf = 0.0
+
+    ncell = 4  # 2×2 magnetic unit cell has 4 sites
+    sz = [0.5, -0.5]  # spin projection values for up and down
+
+    for site_i in 1:ncell
+        up_i = idx[(site_i,1)];  dn_i = idx[(site_i,2)]
+        n_up = real(G_loc[up_i,up_i]);  n_dn = real(G_loc[dn_i,dn_i])
+        # Staggered magnetization: sum over sites with sublattice phase factor
+        S_q += sl[site_i] * (n_up - n_dn) / 2
+        # Staggered density: same but without spin difference
+        N_q += sl[site_i] * (n_up + n_dn)
+
+        # Structure factor calculation (for more detailed analysis)
+        for site_j in 1:ncell, sp_i in 1:2, sp_j in 1:2
+            a = idx[(site_i,sp_i)];  b = idx[(site_j,sp_j)]
+            ninj = real(G_loc[a,a]) * real(G_loc[b,b]) -
+                   real(G_loc[a,b] * G_loc[b,a]) +
+                   (a == b ? real(G_loc[a,a]) : 0.0)
+            N_sf += sl[site_i] * sl[site_j] * ninj
+            S_sf += sl[site_i] * sl[site_j] * sz[sp_i] * sz[sp_j] * ninj
+        end
+    end
+
+    return abs(S_q)/ncell, abs(N_q)/ncell, S_sf/ncell, N_sf/ncell
+end
+
+# ── V sweep ─────────────────────────────────────────────────────────────────
+G_sdw = make_G_sdw()
+G_cdw = make_G_cdw()
+
+# ── On-site interaction U ───────────────────────────────────────────────────
+# generate_twobody with k=1 (single site) only generates one spin combination.
+# Since U n↑n↓ = U (n↑n↓ + n↓n↑), we need to multiply by 2.
+# This is because the interaction has two equivalent ways to contract:
+# (↑,↑,↓,↓) and (↓,↓,↑,↑), both contributing U n↑n↓
+U_ops = generate_twobody(dofs, onsite_bonds,
+    (deltas, qn1, qn2, qn3, qn4) -&gt;
+        (qn1.spin, qn2.spin, qn3.spin, qn4.spin) == (1,1,2,2) ? 2*U_ext : 0.0,
+    order = (cdag, :i, c, :i, cdag, :i, c, :i))
+
+println(&quot;# Extended Hubbard model: t=$t_ext  U=$U_ext  half-filling&quot;)
+println(&quot;# 2x2 magnetic unit cell, $(Nk) k-points (8x8 grid)&quot;)
+println(&quot;# Phase boundary expected near V/U = 1/4, i.e. V = $(U_ext/4)&quot;)
+println()
+println(@sprintf(&quot;# %-6s  %-12s  %-12s  %-12s  %-10s  %-10s  %s&quot;,
+                 &quot;V&quot;, &quot;E_gs&quot;, &quot;E_sdw&quot;, &quot;E_cdw&quot;, &quot;S(pi,pi)&quot;, &quot;N(pi,pi)&quot;, &quot;phase&quot;))
+
+# Storage for plotting
+Vs_list  = Float64[]
+Sq_list  = Float64[]
+Nq_list  = Float64[]
+phase_list = String[]
+
+for V in Vs
+    # Nearest-neighbor interaction V: Σ_{i≠j} n_iσ n_jσ&#39;
+    # For each bond, generate both (i,j) and (j,i) assignments, so multiply by 2
+    # Only keep terms with site i &lt; site j to avoid double counting
+    V_ops = generate_twobody(dofs, nn_bonds,
+        (deltas, qn1, qn2, qn3, qn4) -&gt;
+            qn1.spin == qn2.spin &amp;&amp; qn3.spin == qn4.spin &amp;&amp; qn1.site &lt; qn3.site ? 2*V : 0.0,
+        order = (cdag, :i, c, :i, cdag, :j, c, :j))
+
+    # Combine U and V interaction terms
+    twobody = (ops   = [U_ops.ops;   V_ops.ops],
+               delta = [U_ops.delta; V_ops.delta],
+               irvec = [U_ops.irvec; V_ops.irvec])
+
+    # Run SCF from SDW initial condition
+    r_sdw = solve_hfk(dofs, onebody, twobody, kpoints, n_elec;
+        G_init=G_sdw, n_restarts=1, tol=1e-12, verbose=false)
+    # Run SCF from CDW initial condition
+    r_cdw = solve_hfk(dofs, onebody, twobody, kpoints, n_elec;
+        G_init=G_cdw, n_restarts=1, tol=1e-12, verbose=false)
+
+    E_sdw = r_sdw.energies.total
+    E_cdw = r_cdw.energies.total
+    # Choose the lower energy state as the ground state
+    r_gs  = E_sdw &lt;= E_cdw ? r_sdw : r_cdw
+    phase = E_sdw &lt;= E_cdw ? &quot;SDW&quot; : &quot;CDW&quot;
+
+    # Calculate order parameters
+    S_q, N_q, S_sf, N_sf = observables(r_gs.G_k)
+
+    println(@sprintf(&quot;  %-6.3f  %+12.6f  %+12.6f  %+12.6f  %-10.6f  %-10.6f  %s&quot;,
+                     V, r_gs.energies.total, E_sdw, E_cdw, S_q, N_q, phase))
+
+    push!(Vs_list, V)
+    push!(Sq_list, S_q)
+    push!(Nq_list, N_q)
+    push!(phase_list, phase)
+end
+
+# ── Save data ─────────────────────────────────────────────────────────────────
+open(joinpath(@__DIR__, &quot;res.dat&quot;), &quot;w&quot;) do f
+    println(f, &quot;# V  S(pi,pi)  N(pi,pi)  phase&quot;)
+    for i in eachindex(Vs_list)
+        println(f, @sprintf(&quot;%.4f  %.8f  %.8f  %s&quot;,
+                            Vs_list[i], Sq_list[i], Nq_list[i], phase_list[i]))
+    end
+end
+
+# ── Plot ──────────────────────────────────────────────────────────────────────
+plt = plot(
+    xlabel = &quot;V&quot;,
+    ylabel = &quot;Order parameter&quot;,
+    title  = &quot;Extended Hubbard model  (t=1, U=$(U_ext), half-filling)&quot;,
+    legend = :topleft,
+    framestyle = :box,
+    size = (600, 400),
+)
+plot!(plt, Vs_list, Sq_list,
+    label  = &quot;S(π,π)  staggered magnetization&quot;,
+    marker = :circle,
+    color  = :green,
+    lw     = 2,
+)
+plot!(plt, Vs_list, Nq_list,
+    label  = &quot;N(π,π)  staggered density&quot;,
+    marker = :square,
+    color  = :blue,
+    lw     = 2,
+)
+vline!(plt, [U_ext/4],
+    label     = &quot;V/U = 1/4 (Vc = $(U_ext/4))&quot;,
+    linestyle = :dash,
+    color     = :gray,
+    lw        = 1,
+)
+
+outfile = joinpath(@__DIR__, &quot;CDW_SDW.png&quot;)
+savefig(plt, outfile)
+println(&quot;\nPlot saved to $outfile&quot;)</code></pre><h2 id="Running-the-Benchmark"><a class="docs-heading-anchor" href="#Running-the-Benchmark">Running the Benchmark</a><a id="Running-the-Benchmark-1"></a><a class="docs-heading-anchor-permalink" href="#Running-the-Benchmark" title="Permalink"></a></h2><p>To run this benchmark, execute:</p><pre><code class="language-bash hljs">julia --project=benchmark benchmark/CDW_SDW/run.jl</code></pre><p>This will:</p><ol><li>Sweep the nearest-neighbor repulsion <span>$V$</span> from 0 to 2 (20 points)</li><li>For each <span>$V$</span>, run SCF from both SDW and CDW initial conditions</li><li>Compute the staggered magnetization <span>$S(\pi,\pi)$</span> and staggered density <span>$N(\pi,\pi)$</span></li><li>Save the results to <code>res.dat</code></li><li>Generate a plot <code>CDW_SDW.png</code></li></ol><h2 id="Results"><a class="docs-heading-anchor" href="#Results">Results</a><a id="Results-1"></a><a class="docs-heading-anchor-permalink" href="#Results" title="Permalink"></a></h2><p>The calculated phase boundary at <span>$V_c = U/4 = 1.0$</span> and the order parameter curves are in complete agreement with Fig. 5(b) of Ref. [1].</p><p><img src="benchmark/CDW_SDW/CDW_SDW.png" alt="CDW_SDW"/></p><h2 id="References"><a class="docs-heading-anchor" href="#References">References</a><a id="References-1"></a><a class="docs-heading-anchor-permalink" href="#References" title="Permalink"></a></h2><p>[1] T. Aoyama, K. Yoshimi, K. Ido, Y. Motoyama, T. Kawamura, T. Misawa, T. Kato, and A. Kobayashi, <a href="https://doi.org/10.1016/j.cpc.2024.109087">H-wave – A Python package for the Hartree-Fock approximation and the random phase approximation</a>, Computer Physics Communications 298, 109087 (2024).</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../hartreefock_momentum/">« Momentum Space</a><a class="docs-footer-nextpage" href="../singlemode/">Single-Mode Approximation »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Tuesday 10 March 2026 03:00">Tuesday 10 March 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
