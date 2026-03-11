@@ -172,7 +172,7 @@ Hartree-Fock SCF Solver (momentum space)
 
 This example reproduces the phase diagram of the extended Hubbard model on a 2D square lattice at half-filling:
 
-$$H = -t \sum_{\langle ij \rangle,\sigma} c^\dagger_{i\sigma}c_{j\sigma} + U \sum_i n_{i\uparrow}n_{i\downarrow} + V \sum_{\langle ij \rangle} n_i n_j$$
+$$H = -t \sum_{\langle ij \rangle,\sigma} (c^\dagger_{i\sigma}c_{j\sigma} + \text{h.c.}) + U \sum_i n_{i\uparrow}n_{i\downarrow} + V \sum_{\langle ij \rangle} n_i n_j$$
 
 The model parameters are $t=1$, $U=4$, with nearest-neighbor repulsion $V \in [0, 2]$. At half-filling, the system exhibits two distinct phases:
 - **SDW/AFM phase** ($V/U \lesssim 1/4$): antiferromagnetic order with staggered magnetization $S(\pi,\pi) \neq 0$

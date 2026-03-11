@@ -6,7 +6,7 @@ This example demonstrates the calculation of the phase diagram of the extended H
 
 The extended Hubbard model Hamiltonian is:
 
-$$H = -t \sum_{\langle ij \rangle,\sigma} c^\dagger_{i\sigma}c_{j\sigma} + U \sum_i n_{i\uparrow}n_{i\downarrow} + V \sum_{\langle ij \rangle} n_i n_j$$
+$$H = -t \sum_{\langle ij \rangle,\sigma} (c^\dagger_{i\sigma}c_{j\sigma} + \text{h.c.}) + U \sum_i n_{i\uparrow}n_{i\downarrow} + V \sum_{\langle ij \rangle} n_i n_j$$
 
 where:
 - $t$: nearest-neighbor hopping amplitude

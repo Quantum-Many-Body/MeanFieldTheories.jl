@@ -1,7 +1,7 @@
 """
 Phase diagram of the extended Hubbard model on the 2D square lattice at half-filling.
 
-  H = -t Σ_{<ij>,σ} c†_{iσ}c_{jσ} + U Σ_i n_{i↑}n_{i↓} + V Σ_{<ij>} n_i n_j
+  H = -t Σ_{<ij>,σ} (c†_{iσ}c_{jσ} + h.c.) + U Σ_i n_{i↑}n_{i↓} + V Σ_{<ij>} n_i n_j
 
 Parameters: t=1, U=4, V ∈ [0, 2] (20 points).
 

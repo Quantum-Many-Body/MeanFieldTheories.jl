@@ -6,7 +6,7 @@ This example demonstrates the antiferromagnetic (AFM) transition in the Hubbard 
 
 The Hubbard model Hamiltonian on the honeycomb lattice is:
 
-$$H = -t \sum_{\langle ij \rangle,\sigma} c^\dagger_{i\sigma}c_{j\sigma} + U \sum_i n_{i\uparrow}n_{i\downarrow}$$
+$$H = -t \sum_{\langle ij \rangle,\sigma} (c^\dagger_{i\sigma}c_{j\sigma} + \text{h.c.}) + U \sum_i n_{i\uparrow}n_{i\downarrow}$$
 
 where:
 - $t$: nearest-neighbor hopping amplitude (set to 1)

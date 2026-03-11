@@ -2,7 +2,7 @@
 Hubbard model on the honeycomb lattice (graphene): AFM transition at half-filling.
 
 Model:
-  H = -t Σ_{<ij>,σ} c†_{iσ}c_{jσ} + U Σ_i n_{i↑}n_{i↓}
+  H = -t Σ_{<ij>,σ} (c†_{iσ}c_{jσ} + h.c.) + U Σ_i n_{i↑}n_{i↓}
 
 Honeycomb unit cell: 2 sublattices (A,B). Mean-field predicts an AFM transition
 at U/t ≈ 2.2(3), where opposite sublattice moments form and a gap opens.
