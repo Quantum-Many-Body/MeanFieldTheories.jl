@@ -79,8 +79,6 @@ println("Saved ", outpath)
 
 ## Output
 
-The figure is saved to:
+The figure is shown below (the image is stored under `docs/src/fig/`):
 
-```
-examples/Plot_Lattice/lattice_bonds.png
-```
+![plot_lattice](fig/plot_lattice.png)
