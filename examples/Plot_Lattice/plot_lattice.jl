@@ -67,6 +67,6 @@ ys2 = [lattice.coordinates[i][2] for i in idx2]
 scatter!(p, xs1, ys1; color=:green, markersize=3, label="sub=1")
 scatter!(p, xs2, ys2; color=:purple, markersize=3, label="sub=2")
 
-# outpath = joinpath(@__DIR__, "lattice_bonds.png")
-# savefig(p, outpath)
-# println("Saved ", outpath)
+outpath = joinpath(@__DIR__, "lattice_bonds.png")
+savefig(p, outpath)
+println("Saved ", outpath)

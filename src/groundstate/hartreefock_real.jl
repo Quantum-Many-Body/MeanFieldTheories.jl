@@ -156,6 +156,12 @@ automatically select the lowest-energy converged solution.
 - `seed::Union{Nothing, Int} = nothing`: Random seed for reproducibility
 - `include_fock::Bool = true`: Include Fock exchange terms. Set to `false` for Hartree-only.
 - `verbose::Bool = true`: Print iteration information
+- `field_strength::Float64 = 0.0`: Amplitude of a random symmetry-breaking field added to
+  `h_eff` for the first `n_warmup` iterations of each restart (linearly decayed to zero).
+  Set to a value comparable to the hopping scale to escape paramagnetic or other
+  high-symmetry saddle points without prior knowledge of the ordered phase.
+- `n_warmup::Int = 15`: Number of warmup iterations during which the symmetry-breaking
+  field is active. Should be well below the typical SCF convergence count.
 
 # Returns
 NamedTuple: `(G, eigenvalues, eigenvectors, energies, mu_list, converged, iterations, residual, ncond, sz)`
@@ -176,7 +182,9 @@ function solve_hfr(
     n_restarts::Int = 1,
     seed::Union{Nothing, Int} = nothing,
     include_fock::Bool = true,
-    verbose::Bool = true
+    verbose::Bool = true,
+    field_strength::Float64 = 0.0,
+    n_warmup::Int = 15
 )
     N = total_dim(dofs)
     blocks = dofs.blocks
@@ -242,9 +250,17 @@ function solve_hfr(
             flush(stdout)
         end
 
+        sbf = if field_strength > 0
+            H_rand = randn(rng, GT, N, N)
+            Matrix{GT}((H_rand + H_rand') .* (field_strength / 2))
+        else
+            nothing
+        end
+
         result = _run_scf(G, t_matrix, U_matrix, N, blocks, block_occ,
                           temperature, max_iter, tol, mix_alpha, diis_m, ene_cutoff,
-                          n_restarts > 1 ? false : verbose, timings)
+                          n_restarts > 1 ? false : verbose, timings;
+                          symmetry_breaking_field=sbf, n_warmup=n_warmup)
 
         if n_restarts > 1 && verbose
             println(@sprintf("  Restart %d: E = %+.10f  (%s, %d iters)",
@@ -332,7 +348,9 @@ function _run_scf(
     diis_m::Int,
     ene_cutoff::Float64,
     verbose::Bool,
-    timings::Dict{String, Tuple{Int64, Int}}
+    timings::Dict{String, Tuple{Int64, Int}};
+    symmetry_breaking_field::Union{Nothing, Matrix} = nothing,
+    n_warmup::Int = 0
 ) where T
     G = copy(G)
     G_old = copy(G)
@@ -357,6 +375,10 @@ function _run_scf(
         t0 = Int64(time_ns())
         mul!(Uv, U_matrix, vec(G))
         h_eff .= t_matrix .+ reshape(Uv, N, N)
+        if symmetry_breaking_field !== nothing && iter <= n_warmup
+            decay = 1.0 - (iter - 1) / n_warmup
+            h_eff .+= decay .* symmetry_breaking_field
+        end
         _accum!(timings, "build_h_eff", Int64(time_ns()) - t0)
 
         t0 = Int64(time_ns())

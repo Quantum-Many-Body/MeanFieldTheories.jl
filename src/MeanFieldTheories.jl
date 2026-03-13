@@ -38,7 +38,7 @@ using StaticArrays: SVector
 using SparseArrays: sparse, nnz
 
 using LinearAlgebra: norm, dot, eigen, Hermitian, tr, ishermitian,
-                     Diagonal, mul!, adjoint, transpose, eigvals
+                     Diagonal, mul!, adjoint, transpose, eigvals, svd
 
 import Dates  # used as Dates.now(), Dates.hour(), Dates.minute(), Dates.second()
 

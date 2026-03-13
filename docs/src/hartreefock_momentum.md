@@ -432,8 +432,65 @@ $$E_\text{band} = \frac{1}{N_k}\sum_{k,n}\varepsilon_{kn}\,f_{kn}, \qquad E_\tex
 - `kpoints::Vector{Vector{Float64}}`: k-points (use `build_kpoints` for uniform grids, or provide any custom set).
 - `n_electrons::Int`: Total electron count across all k-points.
 
-**Keyword arguments:** `temperature`, `max_iter`, `tol`, `diis_m`, `G_init`, `ene_cutoff`, `n_restarts`, `seed`, `include_fock`, `verbose`.
+**Keyword arguments:** `temperature`, `max_iter`, `tol`, `diis_m`, `G_init`, `ene_cutoff`, `n_restarts`, `seed`, `include_fock`, `verbose`, `field_strength`, `n_warmup`.
 
 **Returns** `NamedTuple` with: `G_k` (shape `(d,d,Nk)`), `eigenvalues` (shape `(d,Nk)`), `eigenvectors` (shape `(d,d,Nk)`), `energies` (`(band, interaction, total)`), `mu`, `kpoints`, `converged`, `iterations`, `residual`, `ncond`.
 
 Runs full SCF with DIIS mixing and multi-restart (lowest-energy converged result selected). Preprocessing (`build_Tr`, `build_Vr`, classification, kernel assembly) is done once before all restarts.
+
+---
+
+### ⚠️ Critical Pitfall: SCF Saddle-Point Trapping
+
+**SCF iteration is not energy minimization.** The SCF map $G \mapsto G'(H[G])$ finds *fixed points*, not energy minima. A state can simultaneously be an energy saddle point and a *stable* fixed point of the SCF map — meaning all random initializations converge to it, even though a lower-energy solution exists.
+
+**The paramagnetic (PM) trap** is the most common manifestation. For models with spontaneous symmetry breaking (antiferromagnetism, charge density waves, etc.), the PM solution is a stable SCF fixed point even when it is *not* the ground state. Every random initial $G(\mathbf{k})$ can converge to PM regardless of interaction strength, because:
+
+1. A small-amplitude random $G$ produces $H^\text{eff}(G) \approx T(\mathbf{k})$ (kinetic only) on the first SCF step.
+2. Filling the non-interacting bands gives a PM solution.
+3. The PM fixed point then attracts all subsequent iterations.
+
+**Example — Honeycomb Hubbard model (AFM phase).**
+Without symmetry breaking, 10 independent random restarts all converge to the PM saddle point (E = −1.1492), missing the true AFM ground state (E = −1.3480):
+
+```
+Restart 1: E = -1.1491951239  (CONVERGED, 12 iters)   ← PM saddle point
+Restart 2: E = -1.1491951239  (CONVERGED, 12 iters)   ← PM saddle point
+...  (all 10 restarts identical)
+```
+
+#### Solution: Symmetry-Breaking Warmup Field
+
+Use `field_strength` and `n_warmup` to inject a random symmetry-breaking perturbation at the start of each restart. A random Hermitian matrix $\Delta$ (same for all $\mathbf{k}$, independent per restart) is added to $H^\text{eff}(\mathbf{k})$ and linearly decayed to zero:
+
+$$H^{(i)}(\mathbf{k}) = H^\text{eff}(\mathbf{k})\bigl[G^{(i)}\bigr] + \underbrace{\left(1 - \frac{i-1}{n_\text{warmup}}\right)\Delta}_{\text{decaying field, removed after warmup}}$$
+
+This forces each restart to explore a different symmetry-broken landscape. After the warmup phase the field vanishes and the SCF converges freely.
+
+```julia
+result = solve_hfk(dofs, onebody, twobody, kpoints, n_electrons;
+    n_restarts    = 10,
+    field_strength = 1.0,   # comparable to the hopping energy scale
+    n_warmup      = 15,     # well below typical convergence count (~20–30 iters)
+    tol           = 1e-12)
+```
+
+With the field enabled, the same honeycomb Hubbard calculation finds the AFM ground state in 8 out of 10 restarts:
+
+```
+Restart 1: E = -1.1491951239  (CONVERGED, 45 iters)   ← PM (unlucky)
+Restart 2: E = -1.3479535976  (CONVERGED, 29 iters)   ← AFM ground state ✓
+Restart 3: E = -1.3479535998  (CONVERGED, 32 iters)   ← AFM ground state ✓
+...
+Restart 9: E = -1.3479535976  (CONVERGED, 28 iters)   ← AFM ground state ✓
+Restart 10: E = -1.1491951239  (CONVERGED, 36 iters)  ← PM (unlucky)
+```
+
+**Guidelines for `field_strength` and `n_warmup`:**
+
+| Parameter | Recommendation |
+|---|---|
+| `field_strength` | Set to the same order as the dominant energy scale (hopping or interaction). Too small → no effect; too large → slow warmup convergence. |
+| `n_warmup` | Keep well below the typical convergence step count. A value of 10–20 is usually sufficient to push the system out of the PM basin before the field disappears. |
+
+> **Note:** This method does not guarantee finding the global minimum — it increases the probability across restarts. The lowest-energy converged result is automatically selected. If the target phase is completely unknown, combine `field_strength > 0` with a generous `n_restarts` (≥ 10).

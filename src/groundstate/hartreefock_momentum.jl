@@ -485,13 +485,18 @@ end
 # ──────────────── Green's function utilities ────────────────
 
 """
-    initialize_green_k(Nk, d; G_init=nothing, rng=default_rng()) -> Array{ComplexF64, 3}
+    initialize_green_k(Nk, d; G_init=nothing, n_fill=nothing, rng=default_rng()) -> Array{ComplexF64, 3}
 
 Initialize the k-space Green's function stored as `G[a, b, k_idx]` of shape `(d, d, Nk)`
 (column-major: each `G[:,:,ki]` is a contiguous `d×d` matrix in memory).
 
 If `G_init` is provided, validates shape and Hermiticity at each k and returns it.
-Otherwise fills each G(k) with small random Hermitian perturbation around zero.
+
+Otherwise, each `G(k)` is a random Hermitian matrix with eigenvalues in `[0, 1]` and
+mean filling `n_fill / (Nk * d)` per orbital. This initialization has physical magnitude
+(unlike a small perturbation around zero), so the first SCF step produces a non-trivial
+Hartree–Fock field that can break symmetry and escape paramagnetic saddle points.
+If `n_fill` is not provided, eigenvalues are drawn uniformly from `[0, 1]`.
 
 # Arguments
 - `Nk::Int`: Number of k-points
@@ -499,6 +504,8 @@ Otherwise fills each G(k) with small random Hermitian perturbation around zero.
 
 # Keyword Arguments
 - `G_init`: Pre-initialized G array of shape `(d, d, Nk)`, or `nothing`
+- `n_fill::Union{Nothing,Int}`: Total electron number; used to set the mean occupation
+  per k-point so that the initial filling is approximately correct.
 - `rng`: Random number generator
 
 # Returns
@@ -508,6 +515,7 @@ function initialize_green_k(
     Nk::Int,
     d::Int;
     G_init = nothing,
+    n_fill::Union{Nothing, Int} = nothing,
     rng::AbstractRNG = default_rng()
 )
     if G_init !== nothing
@@ -519,10 +527,15 @@ function initialize_green_k(
         end
         return ComplexF64.(G_init)
     end
+    target_fill = n_fill !== nothing ? n_fill / Nk : d / 2.0
     G_k = zeros(ComplexF64, d, d, Nk)
     for k in 1:Nk
-        H = randn(rng, ComplexF64, d, d)
-        G_k[:,:,k] = (H + H') .* (0.1 / d)
+        F = svd(randn(rng, ComplexF64, d, d))
+        U = F.U
+        occ = rand(rng, d)
+        occ .*= target_fill / sum(occ)
+        occ  = clamp.(occ, 0.0, 1.0)
+        G_k[:,:,k] = U * Diagonal(occ) * U'
     end
     return G_k
 end
@@ -1001,7 +1014,9 @@ function _run_scf_k(
     ene_cutoff::Float64,
     include_fock::Bool,
     verbose::Bool,
-    timings::Dict{String, Tuple{Int64, Int}}
+    timings::Dict{String, Tuple{Int64, Int}};
+    symmetry_breaking_field::Union{Nothing, Matrix{ComplexF64}} = nothing,
+    n_warmup::Int = 0
 )
     d, _, Nk = size(G_k)           # layout: (d, d, Nk)
     H_k = zeros(ComplexF64, d, d, Nk)
@@ -1030,6 +1045,15 @@ function _run_scf_k(
                       G_taus_buf, g_adj_buf, f_buf, taus_needed, tau_idx;
                       include_fock=include_fock)
         _accum!(timings, "build_heff_k", Int64(time_ns()) - t0)
+
+        # Symmetry-breaking warmup field: add random Hermitian field to H_k
+        # for the first n_warmup iterations, then remove it.
+        if symmetry_breaking_field !== nothing && i <= n_warmup
+            decay = 1.0 - (i - 1) / n_warmup   # linearly decay 1 → 0
+            @inbounds for ki in 1:Nk
+                H_k[:, :, ki] .+= decay .* symmetry_breaking_field
+            end
+        end
 
         t0 = Int64(time_ns())
         evals, evecs = diagonalize_heff_k(H_k)
@@ -1140,6 +1164,16 @@ For broken-symmetry phases (AFM, CDW, …) pass an enlarged magnetic unit cell.
 - `seed::Union{Nothing,Int} = nothing`
 - `include_fock::Bool = true`
 - `verbose::Bool = true`
+- `field_strength::Float64 = 0.0`: Amplitude of the random symmetry-breaking field
+  added to H_k for the first `n_warmup` iterations of each restart. The field is a
+  random Hermitian matrix (same for all k, independent per restart), linearly decayed
+  to zero over the warmup phase. Set to a value comparable to the hopping scale (e.g.
+  `1.0`) combined with `n_restarts > 1` to escape paramagnetic saddle points without
+  prior knowledge of the ordered phase.
+- `n_warmup::Int = 15`: Number of warmup iterations during which the symmetry-breaking
+  field is active (linearly decayed to zero). Only used when `field_strength > 0`.
+  Should be well below the typical SCF convergence count so the system can converge
+  freely after the field has vanished.
 
 # Returns
 NamedTuple: `G_k, eigenvalues, eigenvectors, energies, mu, kpoints, converged, iterations, residual, ncond`.
@@ -1159,7 +1193,9 @@ function solve_hfk(
     n_restarts::Int            = 1,
     seed::Union{Nothing, Int}  = nothing,
     include_fock::Bool         = true,
-    verbose::Bool              = true
+    verbose::Bool              = true,
+    field_strength::Float64    = 1.0,
+    n_warmup::Int              = 15
 )
     solve_start = Int64(time_ns())
     timings = Dict{String, Tuple{Int64, Int}}()
@@ -1225,16 +1261,24 @@ function solve_hfk(
         t0 = Int64(time_ns())
         G_k = G_init !== nothing && restart == 1 ?
               initialize_green_k(Nk, d; G_init=G_init) :
-              initialize_green_k(Nk, d; rng=rng)
+              initialize_green_k(Nk, d; n_fill=n_electrons, rng=rng)
         _accum!(timings, "initialize_green_k", Int64(time_ns()) - t0)
         n_restarts == 1 && verbose &&
             println(_now_str() * @sprintf(" G initialized  %s",
                                           _fmt_ns(timings["initialize_green_k"][1])))
 
+        sbf = if field_strength > 0
+            H_rand = randn(rng, ComplexF64, d, d)
+            Matrix{ComplexF64}((H_rand + H_rand') .* (field_strength / 2))
+        else
+            nothing
+        end
+
         result = _run_scf_k(G_k, T_k_func, wr_A, wr_B, wr_C, V_k_func,
                             kpoints, n_electrons, temperature,
                             max_iter, tol, diis_m, ene_cutoff,
-                            include_fock, n_restarts > 1 ? false : verbose, timings)
+                            include_fock, n_restarts > 1 ? false : verbose, timings;
+                            symmetry_breaking_field=sbf, n_warmup=n_warmup)
 
         if n_restarts > 1 && verbose
             println(@sprintf("  Restart %d: E = %+.10f  (%s, %d iters)",

@@ -10,8 +10,8 @@ Two phases:
   - CO/CDW  (V/U ≳ 1/4): staggered charge density N(π,π) ≠ 0
 
 Method: momentum-space UHF on 2×2 magnetic unit cell (d=8), 2×2 k-grid (4 k-points).
-For each V, SCF is run from two biased initial conditions (SDW and CDW);
-the lower-energy converged state is taken as the ground state.
+For each V, the ground state is found automatically via symmetry-breaking warmup restarts
+— no prior knowledge of whether SDW or CDW is the ground state is required.
 Results are saved to res.dat and plotted to sdw_cdw.png.
 
 Note on U coefficient:
@@ -19,7 +19,7 @@ Note on U coefficient:
   Since U n↑n↓ = U (n↑n↓ + n↓n↑), we need to multiply by 2.
   (V with k=2 automatically generates both (i,j) and (j,i) assignments.)
 
-Run :
+Run:
     julia --project=examples -t 8 examples/SDW_CDW/run.jl
 """
 
@@ -49,7 +49,6 @@ onsite_bonds = bonds(unitcell, (:p,:p), 0)
 onebody = generate_onebody(dofs, nn_bonds,
     (delta, qn1, qn2) -> qn1.spin == qn2.spin ? -t_ext : 0.0)
 
-
 kpoints = build_kpoints([[2.0,0.0],[0.0,2.0]], (2,2))
 Nk      = length(kpoints)
 n_elec  = 4 * Nk   # half-filling: 4 electrons per magnetic unit cell
@@ -62,35 +61,6 @@ idx = Dict((qn[:site], qn[:spin]) => i for (i,qn) in enumerate(dofs.valid_states
 # sublattice phase factor for Q=(π,π): e^{iQ·r_i}
 # site 1 (0,0)→+1, site 2 (1,0)→-1, site 3 (0,1)→-1, site 4 (1,1)→+1
 const sl = [1.0, -1.0, -1.0, 1.0]
-
-# ── Biased initial Green's functions ─────────────────────────────────────────
-d = length(dofs.valid_states)
-
-# SDW (AFM): sublattice A sites (1,4) → ↑ occupied; sublattice B sites (2,3) → ↓ occupied
-function make_G_sdw()
-    G = zeros(ComplexF64, d, d, Nk)
-    for ki in 1:Nk
-        G[idx[(1,1)], idx[(1,1)], ki] = 1.0   # site 1, ↑
-        G[idx[(4,1)], idx[(4,1)], ki] = 1.0   # site 4, ↑
-        G[idx[(2,2)], idx[(2,2)], ki] = 1.0   # site 2, ↓
-        G[idx[(3,2)], idx[(3,2)], ki] = 1.0   # site 3, ↓
-    end
-    return G
-end
-
-# CDW: sublattice A sites (1,4) doubly occupied; sublattice B sites (2,3) empty
-function make_G_cdw()
-    G = zeros(ComplexF64, d, d, Nk)
-    for ki in 1:Nk
-        G[idx[(1,1)], idx[(1,1)], ki] = 1.0
-        G[idx[(1,2)], idx[(1,2)], ki] = 1.0
-        G[idx[(4,1)], idx[(4,1)], ki] = 1.0
-        G[idx[(4,2)], idx[(4,2)], ki] = 1.0
-    end
-    # tiny distortion to break site-1 / site-4 degeneracy
-    G[idx[(1,1)], idx[(1,1)], 1] += 1e-10
-    return G
-end
 
 # ── Order parameters and structure factors ────────────────────────────────────
 # G_loc = G(r=0) = (1/Nk) Σ_k G_k   (local density matrix within unit cell)
@@ -113,7 +83,7 @@ function observables(G_k)
         up_i = idx[(site_i,1)];  dn_i = idx[(site_i,2)]
         n_up = real(G_loc[up_i,up_i]);  n_dn = real(G_loc[dn_i,dn_i])
         S_q += sl[site_i] * (n_up - n_dn) / 2
-        N_q += sl[site_i] * (n_up + n_dn) 
+        N_q += sl[site_i] * (n_up + n_dn)
 
         for site_j in 1:ncell, sp_i in 1:2, sp_j in 1:2
             a = idx[(site_i,sp_i)];  b = idx[(site_j,sp_j)]
@@ -128,27 +98,24 @@ function observables(G_k)
     return abs(S_q)/ncell, abs(N_q)/ncell, S_sf/ncell, N_sf/ncell
 end
 
-# ── V sweep ───────────────────────────────────────────────────────────────────
-G_sdw = make_G_sdw()
-G_cdw = make_G_cdw()
-
+# ── Hubbard U interaction (onsite) ────────────────────────────────────────────
 #∑_i U_{ii} n_i↑ * n_i↓
 U_ops = generate_twobody(dofs, onsite_bonds,
     (deltas, qn1, qn2, qn3, qn4) ->
         (qn1.spin, qn2.spin, qn3.spin, qn4.spin) == (1,1,2,2) ? U_ext : 0.0,
     order = (cdag, :i, c, :i, cdag, :i, c, :i))
 
+# ── V sweep ───────────────────────────────────────────────────────────────────
 println("# Extended Hubbard model: t=$t_ext  U=$U_ext  half-filling")
-println("# 2x2 magnetic unit cell, $(Nk) k-points (8x8 grid)")
+println("# 2×2 magnetic unit cell, $(Nk) k-points")
 println("# Phase boundary expected near V/U = 1/4, i.e. V = $(U_ext/4)")
 println()
-println(@sprintf("# %-6s  %-12s  %-12s  %-12s  %-10s  %-10s  %s",
-                 "V", "E_gs", "E_sdw", "E_cdw", "S(pi,pi)", "N(pi,pi)", "phase"))
+println(@sprintf("# %-6s  %-14s  %-10s  %-10s  %s",
+                 "V", "E_gs", "S(π,π)", "N(π,π)", "phase"))
 
-# Storage for plotting
-Vs_list  = Float64[]
-Sq_list  = Float64[]
-Nq_list  = Float64[]
+Vs_list    = Float64[]
+Sq_list    = Float64[]
+Nq_list    = Float64[]
 phase_list = String[]
 
 for V in Vs
@@ -162,24 +129,22 @@ for V in Vs
                delta = [U_ops.delta; V_ops.delta],
                irvec = [U_ops.irvec; V_ops.irvec])
 
-    r_sdw = solve_hfk(dofs, onebody, twobody, kpoints, n_elec;
-        G_init=G_sdw, n_restarts=1, tol=1e-12, verbose=false)
-    r_cdw = solve_hfk(dofs, onebody, twobody, kpoints, n_elec;
-        G_init=G_cdw, n_restarts=1, tol=1e-12, verbose=false)
+    r = solve_hfk(dofs, onebody, twobody, kpoints, n_elec;
+        n_restarts     = 10,
+        field_strength = 1.0,
+        n_warmup       = 15,
+        tol            = 1e-8,
+        verbose        = false)
 
-    E_sdw = r_sdw.energies.total
-    E_cdw = r_cdw.energies.total
-    r_gs  = E_sdw <= E_cdw ? r_sdw : r_cdw
-    phase = E_sdw <= E_cdw ? "SDW" : "CDW"
+    S_q, N_q, S_sf, N_sf = observables(r.G_k)
+    phase = S_q >= N_q ? "SDW" : "CDW"
 
-    S_q, N_q, S_sf, N_sf = observables(r_gs.G_k)
+    println(@sprintf("  %-6.3f  %+14.8f  %-10.6f  %-10.6f  %s",
+                     V, r.energies.total, S_q, N_q, phase))
 
-    println(@sprintf("  %-6.3f  %+12.6f  %+12.6f  %+12.6f  %-10.6f  %-10.6f  %s",
-                     V, r_gs.energies.total, E_sdw, E_cdw, S_q, N_q, phase))
-
-    push!(Vs_list, V)
-    push!(Sq_list, S_q)
-    push!(Nq_list, N_q)
+    push!(Vs_list,    V)
+    push!(Sq_list,    S_q)
+    push!(Nq_list,    N_q)
     push!(phase_list, phase)
 end
 
