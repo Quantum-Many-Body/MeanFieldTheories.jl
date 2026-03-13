@@ -30,7 +30,7 @@ JuliaLocalPreferences.toml
 # PDF and Python files
 *.pdf
 *.py
-example/
+
 # macOS system files
 .DS_Store
 
