@@ -192,7 +192,7 @@ julia --project=examples examples/SDW_CDW/run.jl
 
 Results:
 
-![SDW_CDW](examples/SDW_CDW/sdw_cdw.png)
+![SDW_CDW](docs/src/fig/sdw_cdw.png)
 
 The calculated phase boundary at $V_c = U/4 = 1.0$ and the order parameter curves are in complete agreement with Fig. 5(b) of Ref. [1].
 
