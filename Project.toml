@@ -18,6 +18,7 @@ Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 MakieExt = "Makie"
 
 [compat]
+Makie = "0.24"
 StaticArrays = "1.9.17"
 julia = "~1.10, ~1.11, ~1.12"
 
