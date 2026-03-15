@@ -85,15 +85,21 @@ Unlike the AFM-only case, here both SDW and CDW are valid broken-symmetry ground
 ## Running the Example
 
 ```bash
+# Step 1: run HF solver and save results
 julia --project=examples -t 8 examples/SDW_CDW/run.jl
+
+# Step 2: read res.dat and generate figure
+julia --project=examples examples/SDW_CDW/plot.jl
 ```
 
-This will:
+`run.jl` will:
 1. Sweep $V$ from 0 to 2 (20 points) at fixed $U=4$, $t=1$
 2. For each $V$, run `solve_hfk` with 10 symmetry-breaking restarts
 3. Compute $S(\pi,\pi)$ and $N(\pi,\pi)$ from the converged ground state
 4. Determine the phase from the dominant order parameter
-5. Save results to `res.dat` and generate `sdw_cdw.png`
+5. Save results to `res.dat`
+
+`plot.jl` will read `res.dat` and save `docs/src/fig/sdw_cdw.png`.
 
 ## Results
 

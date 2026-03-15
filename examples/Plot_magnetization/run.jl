@@ -25,6 +25,8 @@ Run:
 using MeanFieldTheories
 using CairoMakie
 
+const fig_dir = joinpath(@__DIR__, "..", "..", "docs", "src", "fig")
+
 # ── Helper: (i,j) pairs for visualization from a bonds list ───────────────────
 # Maps each Bond's states to their indices in lattice.position_states.
 # Inter-cell bonds (periodic images) are included as intra-cell pairs so they
@@ -84,7 +86,7 @@ print_magnetization(afm_mags)
 fig1 = plot_magnetization(afm_mags, sq_pos;
            title = "Square-lattice Néel AFM  (pure z)",
            bonds = sq_bonds)
-save(joinpath(@__DIR__, "case1_square_afm_z.png"), fig1)
+save(joinpath(fig_dir, "case1_square_afm_z.png"), fig1)
 println("Saved case1_square_afm_z.png\n")
 
 # ── Case 2 & 3 shared geometry: triangular √3×√3 magnetic unit cell ───────────
@@ -120,7 +122,7 @@ fig2 = plot_magnetization(tri_mags, tri_pos;
            title        = "Triangular-lattice 120° Néel  (pure xy)",
            bonds        = tri_bonds,
            axis_padding = 0.4)
-save(joinpath(@__DIR__, "case2_triangular_120neel_xy.png"), fig2)
+save(joinpath(fig_dir, "case2_triangular_120neel_xy.png"), fig2)
 println("Saved case2_triangular_120neel_xy.png\n")
 
 # ── Case 3: 120° Néel canted by a uniform +z magnetic field ───────────────────
@@ -145,5 +147,5 @@ fig3 = plot_magnetization(cant_mags, tri_pos;
            title        = "Triangular-lattice canted 120° Néel  (field ∥ z)",
            bonds        = tri_bonds,
            axis_padding = 0.4)
-save(joinpath(@__DIR__, "case3_canted_120neel_xyz.png"), fig3)
+save(joinpath(fig_dir, "case3_canted_120neel_xyz.png"), fig3)
 println("Saved case3_canted_120neel_xyz.png")

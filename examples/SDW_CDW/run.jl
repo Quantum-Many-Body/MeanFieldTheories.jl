@@ -26,7 +26,6 @@ Run:
 using Printf
 using LinearAlgebra
 using MeanFieldTheories
-using CairoMakie
 
 # ── Model parameters ──────────────────────────────────────────────────────────
 const t_ext = 1.0
@@ -158,24 +157,4 @@ open(joinpath(@__DIR__, "res.dat"), "w") do f
     end
 end
 
-# ── Plot ──────────────────────────────────────────────────────────────────────
-fig_pd = Figure(size = (600, 400))
-ax_pd  = Axis(fig_pd[1, 1];
-              xlabel = "V",
-              ylabel = "Order parameter",
-              title  = "Extended Hubbard model  (t=1, U=$(U_ext), half-filling)")
-
-scatterlines!(ax_pd, Vs_list, Sq_list;
-    label = "S(π,π)  staggered magnetization",
-    marker = :circle, color = :green, linewidth = 2)
-scatterlines!(ax_pd, Vs_list, Nq_list;
-    label = "N(π,π)  staggered density",
-    marker = :rect, color = :blue, linewidth = 2)
-vlines!(ax_pd, [U_ext/4];
-    label = "V/U = 1/4  (Vc = $(U_ext/4))",
-    linestyle = :dash, color = :gray, linewidth = 1)
-axislegend(ax_pd; position = :lt)
-
-outfile = joinpath(@__DIR__, "sdw_cdw.png")
-save(outfile, fig_pd)
-println("\nPlot saved to $outfile")
+println("\nDone. Run plot.jl to generate the figure.")

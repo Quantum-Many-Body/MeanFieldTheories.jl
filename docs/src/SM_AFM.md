@@ -90,19 +90,25 @@ The solver automatically returns the lowest-energy result.
 ## Running the Example
 
 ```bash
+# Step 1: run HF solver and save results
 julia --project=examples -t 8 examples/SM_AFM/run.jl
+
+# Step 2: read data files and generate figures
+julia --project=examples examples/SM_AFM/plot.jl
 ```
 
-This will:
-1. Compute the U=0 graphene band structure along Γ–K–M–Γ
-2. Compute the zigzag cylinder band structure (edge states)
+`run.jl` will:
+1. Compute the U=0 graphene band structure along Γ–K–M–Γ and save to `bands_2d.dat`
+2. Compute the zigzag cylinder band structure (edge states) and save to `bands_cyl.dat`
 3. Sweep $U$ from 0 to 4 (41 points) using symmetry-breaking restarts
-4. Compute the AFM order parameter $m_{AF}$ for each $U$
-5. Save results to `res.dat` and generate plots:
-   - `graphene_bands_2d.png`: 2D graphene band structure
-   - `graphene_bands_cylinder.png`: zigzag cylinder band structure
-   - `afm_order_parameter.png`: $m_{AF}$ vs $U$
-   - `afm_bands.png`: mean-field band structures at selected $U$ values
+4. Compute the AFM order parameter $m_{AF}$ for each $U$ and save to `res.dat`
+5. Compute mean-field band structures at selected $U$ values and save to `afm_bands.dat`
+
+`plot.jl` will read the data files and generate figures in `docs/src/fig/`:
+- `graphene_bands_2d.png`: 2D graphene band structure
+- `graphene_bands_cylinder.png`: zigzag cylinder band structure
+- `afm_order_parameter.png`: $m_{AF}$ vs $U$
+- `afm_bands.png`: mean-field band structures at selected $U$ values
 
 ## Results
 

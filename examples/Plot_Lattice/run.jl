@@ -14,6 +14,8 @@ using CairoMakie
 # ── Honeycomb unit cell ────────────────────────────────────────────────────────
 # Primitive vectors: a1=(0,√3), a2=(3/2,√3/2)
 # Two sites per cell: A at (0,0), B at (1,0)
+const fig_dir = joinpath(@__DIR__, "..", "..", "docs", "src", "fig")
+
 const a1 = [0.0, sqrt(3.0)]
 const a2 = [1.5, sqrt(3.0)/2]
 
@@ -40,7 +42,8 @@ fig = plot_lattice(lattice;
     site_groupby = :sub,
     site_colors  = [:seagreen, :mediumpurple],
     title        = "Honeycomb lattice  (4×4)")
-
-outpath = joinpath(@__DIR__, "lattice_bonds.png")
-save(outpath, fig)
-println("Saved ", outpath)
+    
+display(fig)
+out = joinpath(fig_dir, "lattice_bonds.png")
+save(out, fig)
+println("\nSaved: $out")
