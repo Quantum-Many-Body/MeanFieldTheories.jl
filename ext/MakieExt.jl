@@ -61,7 +61,7 @@ function _draw_topview!(ax, mags, positions;
     pts2 = [Makie.Point2f(p[1], p[2]) for p in positions]
 
     # bonds and unit cell
-    _draw_bonds_and_cell!(ax, pts2, bonds, bond_color, bond_width,
+    _draw_bonds_and_cell!(ax, bonds, bond_color, bond_width,
                           unitcell_vecs, unitcell_origin, positions, (1, 2))
     _set_limits!(ax, positions, (1, 2), padding)
 
@@ -110,14 +110,18 @@ function _draw_topview!(ax, mags, positions;
 end
 
 # ──────────────── bond lines and unit-cell outline ────────────────────────────
-function _draw_bonds_and_cell!(ax, pts2, bonds, bond_color, bond_width,
+function _draw_bonds_and_cell!(ax, bonds, bond_color, bond_width,
                                 unitcell_vecs, unitcell_origin, positions, proj_pos)
     get_coord(p, dim) = dim <= length(p) ? Float32(p[dim]) : 0f0
     ph, pv = proj_pos
 
     if bonds !== nothing
         bpts = Makie.Point2f[]
-        for (i, j) in bonds; push!(bpts, pts2[i], pts2[j]); end
+        for b in bonds
+            length(b.coordinates) < 2 && continue
+            push!(bpts, Makie.Point2f(b.coordinates[1][1], b.coordinates[1][2]))
+            push!(bpts, Makie.Point2f(b.coordinates[2][1], b.coordinates[2][2]))
+        end
         Makie.linesegments!(ax, bpts; color=bond_color, linewidth=bond_width)
     end
 

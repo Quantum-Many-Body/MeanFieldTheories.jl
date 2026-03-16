@@ -27,23 +27,6 @@ using CairoMakie
 
 const fig_dir = joinpath(@__DIR__, "..", "..", "docs", "src", "fig")
 
-# ── Helper: (i,j) pairs for visualization from a bonds list ───────────────────
-# Maps each Bond's states to their indices in lattice.position_states.
-# Inter-cell bonds (periodic images) are included as intra-cell pairs so they
-# show as direct connections between unit-cell sites in the plot.
-function bond_pairs(bond_list, lattice)
-    state_idx = Dict(s => i for (i, s) in enumerate(lattice.position_states))
-    seen = Set{Tuple{Int,Int}}()
-    for b in bond_list
-        length(b.states) == 2 || continue
-        i = get(state_idx, b.states[1], nothing)
-        j = get(state_idx, b.states[2], nothing)
-        (isnothing(i) || isnothing(j)) && continue
-        push!(seen, (min(i, j), max(i, j)))
-    end
-    return sort!(collect(seen))
-end
-
 # ── Helper: build a mag NamedTuple from (site_index, n, mx, my, mz) ───────────
 function make_mag(site, n, mx, my, mz)
     m     = sqrt(mx^2 + my^2 + mz^2)
@@ -68,8 +51,7 @@ sq_uc = Lattice(
     [[0.0,0.0],[1.0,0.0],[0.0,1.0],[1.0,1.0]];
     vectors = [[2.0,0.0],[0.0,2.0]])
 
-sq_NN    = bonds(sq_uc, (:p,:p), 1)
-sq_bonds = bond_pairs(sq_NN, sq_uc)
+sq_bonds = bonds(sq_uc, (:p,:p), 1)
 sq_pos   = sq_uc.coordinates   # Vector{SVector{2,Float64}}
 
 mz0 = 0.45
@@ -99,8 +81,7 @@ tri_uc = Lattice(
     [[0.0, 0.0], [1.0, 0.0], [0.5, sqrt(3)/2]];
     vectors = [[3/2, sqrt(3)/2], [0.0, sqrt(3)]])
 
-tri_NN    = bonds(tri_uc, (:p,:p), 1)
-tri_bonds = bond_pairs(tri_NN, tri_uc)
+tri_bonds = bonds(tri_uc, (:p,:p), 1)
 tri_pos   = tri_uc.coordinates
 
 # ── Case 2: Triangular lattice 120° Néel order ────────────────────────────────
