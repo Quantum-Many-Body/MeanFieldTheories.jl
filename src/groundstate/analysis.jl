@@ -194,6 +194,89 @@ function print_magnetization(mags::Vector; digits::Int = 4, io::IO = stdout)
     end
 end
 
+# ──────────────── Magnetic structure factor & ordering wavevector ────────────────
+
+"""
+    magnetic_structure_factor(mags, lattice, qpoints) -> Vector{Float64}
+
+Compute the magnetic structure factor
+
+```math
+S(\\mathbf{q}) = \\frac{1}{N_s} \\left|\\sum_s e^{i\\mathbf{q}\\cdot\\mathbf{d}_s}\\, \\vec{m}_s\\right|^2
+```
+
+at each q-point, where the sum runs over all sites, `\\mathbf{d}_s` is the
+real-space coordinate of site `s` (looked up from `lattice`), and
+`\\vec{m}_s = (m_x, m_y, m_z)` is its local magnetic moment
+(e.g. from [`local_magnetization`](@ref)).
+
+# Arguments
+- `mags`: output of `local_magnetization`
+- `lattice`: the `Lattice` used to build the system; site coordinates are
+  extracted automatically from `mag.label` via `get_coordinate`
+- `qpoints`: collection of q-vectors to evaluate at (same format as `build_kpoints`)
+
+# Returns
+`Vector{Float64}` of length `length(qpoints)`.
+
+# Example
+```julia
+mags = local_magnetization(dofs, result.G_k)
+qpts = build_kpoints([a1, a2], (100, 100))
+Sq   = magnetic_structure_factor(mags, lattice, qpts)
+```
+"""
+function magnetic_structure_factor(mags, lattice::Lattice, qpoints)
+    coords = [get_coordinate(lattice, QuantumNumber(mag.label)) for mag in mags]
+    Ns     = length(mags)
+    Sq     = zeros(Float64, length(qpoints))
+    for (iq, q) in enumerate(qpoints)
+        Fx = Fy = Fz = zero(ComplexF64)
+        for (mag, pos) in zip(mags, coords)
+            phase = exp(im * sum(q .* pos))
+            Fx += phase * mag.mx
+            Fy += phase * mag.my
+            Fz += phase * mag.mz
+        end
+        Sq[iq] = (abs2(Fx) + abs2(Fy) + abs2(Fz)) / Ns
+    end
+    return Sq
+end
+
+"""
+    ordering_wavevector(mags, lattice, qpoints) -> NamedTuple
+
+Find the magnetic ordering wavevector **Q** as the q-point that maximises
+[`magnetic_structure_factor`](@ref).
+
+# Arguments
+- `mags`: output of `local_magnetization`
+- `lattice`: the `Lattice` used to build the system
+- `qpoints`: collection of q-vectors to search over (same format as `build_kpoints`)
+
+# Returns
+A `NamedTuple` with fields:
+
+| field     | description                                         |
+|-----------|-----------------------------------------------------|
+| `Q`       | the q-vector with the largest `S(q)`               |
+| `Sq_max`  | the peak value `S(Q)`                              |
+| `Sq`      | full `Vector{Float64}` of `S(q)` at all q-points  |
+
+# Example
+```julia
+mags = local_magnetization(dofs, result.G_k)
+qpts = build_kpoints([a1, a2], (100, 100))
+res  = ordering_wavevector(mags, lattice, qpts)
+println("Q = ", res.Q, "  S(Q) = ", res.Sq_max)
+```
+"""
+function ordering_wavevector(mags, lattice::Lattice, qpoints)
+    Sq    = magnetic_structure_factor(mags, lattice, qpoints)
+    i_max = argmax(Sq)
+    return (Q = qpoints[i_max], Sq_max = Sq[i_max], Sq = Sq)
+end
+
 # ──────────────── Plotting stub (implemented in ext/MakieExt.jl) ────────────────
 
 """
@@ -223,7 +306,7 @@ using WGLMakie   # Jupyter notebook
 | `head_frac`       | `0.32`      | fraction of arrow length taken by the head                     |
 | `site_markersize` | `20`        | outer circle marker size                                       |
 | `dot_size_frac`   | `0.45`      | inner ⊙/⊗ max size as fraction of `site_markersize`           |
-| `bonds`           | `nothing`   | `Vector{Tuple{Int,Int}}` of site index pairs to draw           |
+| `bonds`           | `nothing`   | bond list from [`bonds`](@ref) — passed directly, no helper needed |
 | `bond_color`      | `:gray60`   | bond line color                                                |
 | `bond_width`      | `1.5`       | bond line width                                                |
 | `unitcell_vecs`   | `nothing`   | two lattice vectors to draw unit cell outline                  |
@@ -246,8 +329,9 @@ using CairoMakie
 result = solve_hfk(...)
 mags   = local_magnetization(dofs, result.G_k)
 
-fig = plot_magnetization(mags, [[0.0,0.0],[1.0,0.0]];
-    bonds         = [(1,2)],
+nn = bonds(lattice, (:p, :p), 1)
+fig = plot_magnetization(mags, unitcell.coordinates;
+    bonds         = nn,
     unitcell_vecs = [[3/2, √3/2], [0.0, √3]],
     title         = "KMH ground state")
 save("magnetization.pdf", fig)

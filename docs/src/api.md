@@ -11,6 +11,7 @@ SystemDofs
 Lattice
 Bond
 FermionOp
+Operator
 Operators
 ```
 
@@ -84,7 +85,30 @@ green_k_to_tau
 
 ```@docs
 solve_hfk
+energy_bands
 ```
+
+---
+
+## Analysis
+
+```@docs
+local_magnetization
+print_magnetization
+magnetic_structure_factor
+ordering_wavevector
+```
+
+---
+
+## Visualization
+
+```@docs
+plot_lattice
+plot_magnetization
+```
+
+See [Visualization](@ref) for detailed usage and examples.
 
 ---
 

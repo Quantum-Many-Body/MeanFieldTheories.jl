@@ -74,23 +74,8 @@ single top-view panel:
 | **⊗ cross** | $m_z < 0$ (spin into page), size $\propto |m_z|$ |
 
 `mags` is the output of [`local_magnetization`](@ref), and `positions` is a vector of
-site coordinates (e.g. `unitcell.coordinates`).  Bond pairs for the visualization
-can be extracted from the package's bond infrastructure with a small helper:
-
-```julia
-function bond_pairs(bond_list, lattice)
-    state_idx = Dict(s => i for (i, s) in enumerate(lattice.position_states))
-    seen = Set{Tuple{Int,Int}}()
-    for b in bond_list
-        length(b.states) == 2 || continue
-        i = get(state_idx, b.states[1], nothing)
-        j = get(state_idx, b.states[2], nothing)
-        (isnothing(i) || isnothing(j)) && continue
-        push!(seen, (min(i, j), max(i, j)))
-    end
-    return sort!(collect(seen))
-end
-```
+site coordinates (e.g. `unitcell.coordinates`).  Bond sets produced by [`bonds`](@ref)
+can be passed directly to the `bonds` keyword — no helper function needed.
 
 ### Case 1 — Square lattice Néel AFM (pure z)
 
@@ -103,7 +88,7 @@ sq_uc = Lattice(
     [[0.0,0.0],[1.0,0.0],[0.0,1.0],[1.0,1.0]];
     vectors = [[2.0,0.0],[0.0,2.0]])
 
-sq_bonds = bond_pairs(bonds(sq_uc, (:p,:p), 1), sq_uc)
+sq_NN = bonds(sq_uc, (:p,:p), 1)
 
 mz0 = 0.45
 afm_mags = [
@@ -115,7 +100,7 @@ afm_mags = [
 
 fig = plot_magnetization(afm_mags, sq_uc.coordinates;
     title = "Square-lattice Néel AFM  (pure z)",
-    bonds = sq_bonds)
+    bonds = sq_NN)
 save("case1_square_afm_z.png", fig)
 ```
 
@@ -133,7 +118,7 @@ tri_uc = Lattice(
     [[0.0, 0.0], [1.0, 0.0], [0.5, sqrt(3)/2]];
     vectors = [[3/2, sqrt(3)/2], [0.0, sqrt(3)]])
 
-tri_bonds = bond_pairs(bonds(tri_uc, (:p,:p), 1), tri_uc)
+tri_bonds = bonds(tri_uc, (:p,:p), 1)
 
 m0 = 0.45
 tri_mags = [

@@ -210,3 +210,49 @@ open(joinpath(@__DIR__, "res.dat"), "w") do f
 end
 
 println("\nDone. Results saved to res.dat. Run plot.jl to generate the figure.")
+
+# ── Part 3: Ordering wavevector Q for each ordered (λ, U) ─────────────────────
+println()
+println("=" ^ 60)
+println("Part 3: Magnetic ordering wavevector Q")
+println("=" ^ 60)
+
+qpoints = build_kpoints([a1, a2], (200, 200))
+
+rows = NamedTuple[]
+open(joinpath(@__DIR__, "res.dat")) do f
+    for line in eachline(f)
+        startswith(line, "#") && continue
+        isempty(strip(line)) && continue
+        v = split(strip(line))
+        push!(rows, (
+            lambda    = parse(Float64, v[1]),
+            U         = parse(Float64, v[2]),
+            m_neel_xy = parse(Float64, v[3]),
+            mx_A = parse(Float64, v[4]), my_A = parse(Float64, v[5]), mz_A = parse(Float64, v[6]),
+            mx_B = parse(Float64, v[7]), my_B = parse(Float64, v[8]), mz_B = parse(Float64, v[9]),
+        ))
+    end
+end
+
+println(@sprintf("# %-6s  %-8s  %-10s  %-14s  %-14s  %s",
+                 "lambda", "U", "m_neel_xy", "Qx", "Qy", "S(Q)"))
+
+open(joinpath(@__DIR__, "ordering_q.dat"), "w") do f
+    println(f, "# lambda  U  m_neel_xy  Qx  Qy  Sq_max")
+    for r in rows
+        r.m_neel_xy < 0.01 && continue
+        mags = [
+            (label=(cell=1, sub=1), mx=r.mx_A, my=r.my_A, mz=r.mz_A),
+            (label=(cell=1, sub=2), mx=r.mx_B, my=r.my_B, mz=r.mz_B),
+        ]
+        res = ordering_wavevector(mags, unitcell, qpoints)
+        Q   = res.Q
+        println(@sprintf("  %-6.2f  %-8.4f  %-10.6f  %-+14.6f  %-+14.6f  %.6f",
+                         r.lambda, r.U, r.m_neel_xy, Q[1], Q[2], res.Sq_max))
+        println(f, @sprintf("%.4f  %.6f  %.8f  %.8f  %.8f  %.8f",
+                            r.lambda, r.U, r.m_neel_xy, Q[1], Q[2], res.Sq_max))
+    end
+end
+
+println("\nOrdering wavevectors saved to ordering_q.dat.")

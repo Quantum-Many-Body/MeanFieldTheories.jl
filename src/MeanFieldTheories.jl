@@ -81,6 +81,7 @@ export build_Tr, build_Tk, build_Vr, build_Vk, build_Uk
 export build_kpoints, solve_hfk, energy_bands
 export initialize_green_k, green_k_to_tau
 export local_magnetization, print_magnetization, plot_magnetization
+export magnetic_structure_factor, ordering_wavevector
 export plot_lattice
 
 # Export utility constants
