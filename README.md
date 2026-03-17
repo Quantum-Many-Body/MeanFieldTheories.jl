@@ -2,7 +2,7 @@
 
 # MeanFieldTheories.jl
 
-**MeanFieldTheories.jl** is a Julia package for studying quantum many-body systems using mean-field theory and related methods. It provides a complete workflow from constructing many-body Hamiltonians to obtaining self-consistent ground states and calculating collective excitation spectra, covering methods such as Hartree-Fock (HF), Single-Mode Approximation (SMA) and Random Phase Approximation (RPA).
+**MeanFieldTheories.jl** is a Julia package for studying quantum many-body systems using mean-field theory and related methods. It provides a complete workflow from constructing many-body Hamiltonians to obtaining self-consistent ground states and calculating collective excitation spectra.
 
 See documents: https://Quantum-Many-Body.github.io/MeanFieldTheories.jl/dev
 
@@ -16,7 +16,7 @@ See documents: https://Quantum-Many-Body.github.io/MeanFieldTheories.jl/dev
 
 - **Unrestricted Hartree-Fock in both real and momentum space.** All four Wick contraction channels (Hartree and Fock, both pairs) are kept open with no preset symmetry breaking.
 
-- **Complete post-HF excitation spectrum.** On top of the mean-field ground state, collective modes are accessible via Single-Mode Approximation (SMA) and Random Phase Approximation (RPA), yielding dynamic structure factors and excitation gaps directly.
+- **Complete post-HF excitation spectrum.** On top of the mean-field ground state, collective modes are accessible using SMA, BSE and RPA, yielding dynamic structure factors and excitation gaps directly.
 
 ## Installation
 
@@ -213,7 +213,7 @@ This example will compute the magnon excitation spectrum using SMA. (See Ref. [2
 
 - **quantumsystem**: Core quantum system definitions, lattice structures, and operator algebra
 - **groundstate**: Ground state calculations using Hartree-Fock and mean-field methods
-- **excitations**: Excited state calculations using RPA, TDHF, and single-mode approximation
+- **excitations**: Excited state calculations using SMA, BSE and RPA.
 
 ## Citation
 
