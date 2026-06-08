@@ -881,6 +881,357 @@ function energy_bands(
     return bands, evecs
 end
 
+# ──────────────── Fermi surface ────────────────
+
+"""
+    fermi_surface(dofs, onebody, twobody, hf, reciprocal_vectors, grid_size;
+                  fermi_energy=hf.mu, bands=:all, include_fock=true,
+                  ranges=(0.0=>1.0, 0.0=>1.0), periodic=true, mesh_tol=1e-8)
+
+Extract 2D Fermi-surface contours on a reciprocal-space grid.
+
+`reciprocal_vectors = [b1, b2]` defines the reciprocal basis and
+`grid_size = (n1, n2)` samples points in the reduced-coordinate ranges
+
+    q = x_i b1 + y_j b2
+
+where `x_i` and `y_j` are sampled uniformly from `ranges`. The default
+`ranges=(0.0=>1.0, 0.0=>1.0)` gives the usual first reciprocal cell; use
+`ranges=(-0.5=>0.5, -0.5=>0.5)` to center the grid at Γ.
+
+If this target grid matches `hf.kpoints`, the function reuses `hf.eigenvalues`.
+Otherwise it calls [`energy_bands`](@ref) on the target grid using `hf.G_k`.
+
+# Returns
+A `NamedTuple` with fields:
+- `kpoints`: target reciprocal-space points, ordered with the first index fastest
+- `grid_size`: `(n1, n2)`
+- `reciprocal_vectors`: copied reciprocal basis vectors
+- `energies`: band energies on `kpoints`
+- `fermi_energy`: contour energy
+- `bands`: band indices included
+- `contours`: contour lines. Each entry has fields `band`, `coords`, and `kpoints`;
+  `coords` are reduced coordinates `(x, y)`, while `kpoints` are Cartesian momenta
+- `points`: all Fermi-surface Cartesian points concatenated
+- `coords`: all reduced-coordinate points concatenated
+- `record`: band index for each point in `points`
+- `source`: `:hf` if `hf.eigenvalues` were reused, otherwise `:energy_bands`
+"""
+function fermi_surface(
+    dofs::SystemDofs,
+    onebody,
+    twobody,
+    hf,
+    reciprocal_vectors::AbstractVector{<:AbstractVector{<:Real}},
+    grid_size::NTuple{2, Int};
+    fermi_energy = hf.mu,
+    bands = :all,
+    include_fock::Bool = true,
+    ranges = (0.0=>1.0, 0.0=>1.0),
+    periodic::Bool = true,
+    mesh_tol::Real = 1e-8
+)
+    qpoints = _reciprocal_grid_2d(reciprocal_vectors, grid_size; ranges=ranges)
+    mesh_hit = _match_kpoints(qpoints, hf.kpoints; tol=mesh_tol)
+
+    energies, source = if mesh_hit !== nothing
+        (hf.eigenvalues[:, mesh_hit], :hf)
+    else
+        evals, _ = energy_bands(dofs, onebody, twobody, hf.kpoints, hf.G_k, qpoints;
+                                include_fock=include_fock)
+        (evals, :energy_bands)
+    end
+
+    fs = _fermi_surface_from_grid(
+        qpoints,
+        energies,
+        reciprocal_vectors,
+        grid_size;
+        fermi_energy=fermi_energy,
+        bands=bands,
+        ranges=ranges,
+        periodic=periodic,
+    )
+
+    return merge(fs, (source=source,))
+end
+
+function _reciprocal_grid_2d(
+    reciprocal_vectors::AbstractVector{<:AbstractVector{<:Real}},
+    grid_size::NTuple{2, Int};
+    ranges = (0.0=>1.0, 0.0=>1.0)
+)
+    length(reciprocal_vectors) == 2 ||
+        error("fermi_surface currently supports 2D reciprocal grids only")
+
+    b1 = Vector{Float64}(reciprocal_vectors[1])
+    b2 = Vector{Float64}(reciprocal_vectors[2])
+    length(b1) == length(b2) ||
+        error("reciprocal vectors must have the same dimension")
+
+    n1, n2 = grid_size
+    n1 >= 2 && n2 >= 2 || error("grid_size must be at least (2, 2), got $grid_size")
+    xs, ys = _reduced_grid_axes(grid_size, ranges; periodic=false)
+
+    qpoints = Vector{Float64}[]
+    sizehint!(qpoints, n1 * n2)
+    for y in ys, x in xs
+        push!(qpoints, x .* b1 .+ y .* b2)
+    end
+    return qpoints
+end
+
+function _match_kpoints(
+    qpoints::AbstractVector{<:AbstractVector{<:Real}},
+    kpoints::AbstractVector{<:AbstractVector{<:Real}};
+    tol::Real = 1e-8
+)
+    length(qpoints) == length(kpoints) || return nothing
+
+    buckets = Dict{Any, Vector{Int}}()
+    for (ik, k) in enumerate(kpoints)
+        push!(get!(buckets, _kpoint_key(k, tol), Int[]), ik)
+    end
+
+    used = falses(length(kpoints))
+    perm = Vector{Int}(undef, length(qpoints))
+
+    for (iq, q) in enumerate(qpoints)
+        candidates = get(buckets, _kpoint_key(q, tol), Int[])
+        hit = nothing
+        for ik in candidates
+            used[ik] && continue
+            if length(q) == length(kpoints[ik]) && all(abs.(q .- kpoints[ik]) .< tol)
+                hit = ik
+                break
+            end
+        end
+        hit === nothing && return nothing
+        used[hit] = true
+        perm[iq] = hit
+    end
+
+    return perm
+end
+
+_kpoint_key(k::AbstractVector{<:Real}, tol::Real) = Tuple(round.(Int, k ./ tol))
+
+function _fermi_surface_from_grid(
+    kpoints::AbstractVector{<:AbstractVector{<:Real}},
+    energies::AbstractMatrix{<:Real},
+    reciprocal_vectors::AbstractVector{<:AbstractVector{<:Real}},
+    grid_size::NTuple{2, Int};
+    fermi_energy,
+    bands = :all,
+    ranges = (0.0=>1.0, 0.0=>1.0),
+    periodic::Bool = true
+)
+    n1, n2 = grid_size
+    length(kpoints) == n1 * n2 ||
+        error("length(kpoints)=$(length(kpoints)) does not match grid_size=$grid_size")
+    size(energies, 2) == length(kpoints) ||
+        error("size(energies, 2)=$(size(energies, 2)) must match length(kpoints)=$(length(kpoints))")
+
+    nbands = size(energies, 1)
+    band_list = bands === :all ? collect(1:nbands) : collect(bands)
+    all(b -> 1 <= b <= nbands, band_list) ||
+        error("bands must be in 1:$nbands, got $band_list")
+
+    b1 = Vector{Float64}(reciprocal_vectors[1])
+    b2 = Vector{Float64}(reciprocal_vectors[2])
+    xs, ys, grids = _contour_grid_data(energies, grid_size, ranges; periodic=periodic)
+
+    contours = NamedTuple[]
+    coords = Vector{Float64}[]
+    points = Vector{Float64}[]
+    record = Int[]
+
+    for band in band_list
+        z = grids[band]
+        for line in lines(contour(xs, ys, z, fermi_energy))
+            line_coords = Vector{Float64}[]
+            line_points = Vector{Float64}[]
+            for (x, y) in zip(coordinates(line)...)
+                coord = [Float64(x), Float64(y)]
+                k = coord[1] .* b1 .+ coord[2] .* b2
+                push!(line_coords, coord)
+                push!(line_points, k)
+                push!(coords, coord)
+                push!(points, k)
+                push!(record, band)
+            end
+            push!(contours, (band=band, coords=line_coords, kpoints=line_points))
+        end
+    end
+
+    return (
+        kpoints = kpoints,
+        grid_size = grid_size,
+        ranges = _parse_grid_ranges(ranges),
+        reciprocal_vectors = [b1, b2],
+        energies = energies,
+        fermi_energy = fermi_energy,
+        bands = band_list,
+        contours = contours,
+        coords = coords,
+        points = points,
+        record = record,
+    )
+end
+
+function _contour_grid_data(
+    energies::AbstractMatrix{<:Real},
+    grid_size::NTuple{2, Int},
+    ranges;
+    periodic::Bool = true
+)
+    n1, n2 = grid_size
+    nbands = size(energies, 1)
+
+    if periodic
+        xs, ys = _reduced_grid_axes(grid_size, ranges; periodic=true)
+        grids = Vector{Matrix{Float64}}(undef, nbands)
+        for band in 1:nbands
+            z0 = reshape(Float64.(energies[band, :]), n1, n2)
+            z = Matrix{Float64}(undef, n1 + 1, n2 + 1)
+            for j in 1:n2+1, i in 1:n1+1
+                z[i, j] = z0[mod1(i, n1), mod1(j, n2)]
+            end
+            grids[band] = z
+        end
+        return xs, ys, grids
+    else
+        xs, ys = _reduced_grid_axes(grid_size, ranges; periodic=false)
+        grids = [reshape(Float64.(energies[band, :]), n1, n2) for band in 1:nbands]
+        return xs, ys, grids
+    end
+end
+
+function _reduced_grid_axes(
+    grid_size::NTuple{2, Int},
+    ranges;
+    periodic::Bool
+)
+    (r1, r2) = _parse_grid_ranges(ranges)
+    n1, n2 = grid_size
+    m1 = periodic ? n1 + 1 : n1
+    m2 = periodic ? n2 + 1 : n2
+    xs = [r1[1] + (i - 1) * (r1[2] - r1[1]) / n1 for i in 1:m1]
+    ys = [r2[1] + (j - 1) * (r2[2] - r2[1]) / n2 for j in 1:m2]
+    return xs, ys
+end
+
+function _parse_grid_ranges(ranges)
+    length(ranges) == 2 || error("ranges must contain two intervals")
+    r1 = _parse_grid_range(ranges[1])
+    r2 = _parse_grid_range(ranges[2])
+    return (r1, r2)
+end
+
+_parse_grid_range(r::Pair) = (Float64(first(r)), Float64(last(r)))
+_parse_grid_range(r::Tuple{<:Real,<:Real}) = (Float64(r[1]), Float64(r[2]))
+
+# ──────────────── Density of states ────────────────
+
+"""
+    density_of_states(hf; bands=:all, energies=nothing, energy_range=nothing,
+                      npoints=600, broaden=nothing, kernel=:gaussian)
+
+Compute the density of states from an existing HF result.
+
+This function uses only `hf.eigenvalues`; it does not rebuild or diagonalize the
+Hartree-Fock Hamiltonian. The delta functions are broadened by either a Gaussian
+or Lorentzian kernel. Following the convention used in many plotting utilities,
+the returned `dos` is multiplied by the energy spacing `dE` and divided by `Nk`,
+so `sum(dos)` is approximately the number of included bands per unit cell.
+
+# Keyword arguments
+- `bands=:all`: band indices to include.
+- `energies=nothing`: energy axis. If provided, this vector is used directly.
+- `energy_range=nothing`: range for the generated energy axis, e.g. `-4=>4`.
+- `npoints=600`: number of energy points when `energies` is not provided.
+- `broaden=nothing`: kernel width. Defaults to `bandwidth/200`.
+- `kernel=:gaussian`: either `:gaussian` or `:lorentzian`.
+
+# Returns
+A `NamedTuple` with fields `energies`, `dos`, `dE`, `broaden`, `kernel`, `bands`,
+and `source=:hf`.
+"""
+function density_of_states(
+    hf;
+    bands = :all,
+    energies = nothing,
+    energy_range = nothing,
+    npoints::Int = 600,
+    broaden = nothing,
+    kernel::Symbol = :gaussian
+)
+    evals = hf.eigenvalues
+    nbands, Nk = size(evals)
+    band_list = bands === :all ? collect(1:nbands) : collect(bands)
+    all(b -> 1 <= b <= nbands, band_list) ||
+        error("bands must be in 1:$nbands, got $band_list")
+
+    levels = Float64.(vec(evals[band_list, :]))
+    isempty(levels) && error("no eigenvalues selected")
+
+    emin, emax = minimum(levels), maximum(levels)
+    bandwidth = emax - emin
+    η = broaden === nothing ? max(bandwidth / 200, eps(Float64)) : Float64(broaden)
+    η > 0 || error("broaden must be positive")
+
+    axis = if energies !== nothing
+        Float64.(collect(energies))
+    else
+        lo, hi = energy_range === nothing ?
+                 (emin - 5η, emax + 5η) :
+                 _parse_energy_range(energy_range)
+        npoints >= 2 || error("npoints must be at least 2, got $npoints")
+        collect(range(lo, hi; length=npoints))
+    end
+    length(axis) >= 2 || error("energy axis must contain at least two points")
+    dE = _energy_spacing(axis)
+
+    dos = zeros(Float64, length(axis))
+    if kernel == :gaussian
+        pref = 1 / (sqrt(2π) * η)
+        for e in levels
+            @. dos += pref * exp(-0.5 * ((axis - e) / η)^2)
+        end
+    elseif kernel == :lorentzian
+        pref = η / π
+        for e in levels
+            @. dos += pref / ((axis - e)^2 + η^2)
+        end
+    else
+        error("kernel must be :gaussian or :lorentzian, got $kernel")
+    end
+
+    dos .*= dE / Nk
+
+    return (
+        energies = axis,
+        dos = dos,
+        dE = dE,
+        broaden = η,
+        kernel = kernel,
+        bands = band_list,
+        source = :hf,
+    )
+end
+
+_parse_energy_range(r::Pair) = (Float64(first(r)), Float64(last(r)))
+_parse_energy_range(r::Tuple{<:Real,<:Real}) = (Float64(r[1]), Float64(r[2]))
+
+function _energy_spacing(axis::AbstractVector{<:Real})
+    diffs = diff(axis)
+    dE = sum(diffs) / length(diffs)
+    maximum(abs.(diffs .- dE)) <= max(1e-10, 1e-8 * abs(dE)) ||
+        error("energy axis must be uniformly spaced")
+    dE > 0 || error("energy axis must be increasing")
+    return Float64(dE)
+end
+
 # ──────────────── Diagonalization and occupation ────────────────
 
 """

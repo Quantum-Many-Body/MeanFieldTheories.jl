@@ -621,3 +621,14 @@ function build_interaction_tensor(dofs::SystemDofs, ops::AbstractVector{<:Operat
 
     return V
 end
+
+
+function opsum(terms...)
+    if isempty(terms) 
+        return (ops=Operators[], delta=NTuple{3}[], irvec=NTuple{3}[])
+    else
+    return (ops   = vcat((term.ops for term in terms)...),
+            delta = vcat((term.delta for term in terms)...),
+            irvec = vcat((term.irvec for term in terms)...))
+    end
+end

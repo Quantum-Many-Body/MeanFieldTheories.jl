@@ -35,6 +35,8 @@ module MeanFieldTheories
 
 using StaticArrays: SVector
 
+using Contour: contour, lines, coordinates
+
 using SparseArrays: sparse, nnz
 
 using LinearAlgebra: norm, dot, eigen, Hermitian, tr, ishermitian,
@@ -74,7 +76,7 @@ export qn2linear, linear2qn
 export ndofs, total_dim, site_spin_system
 
 # Export operator generation functions
-export generate_onebody, generate_twobody
+export generate_onebody, generate_twobody, opsum
 
 # Export matrix/tensor builders
 export build_onebody_matrix, build_interaction_tensor
@@ -82,7 +84,7 @@ export build_onebody_matrix, build_interaction_tensor
 # Export Hartree-Fock functions
 export build_T, build_U, solve_hfr
 export build_Tr, build_Tk, build_Vr, build_Vk, build_Uk
-export build_kpoints, solve_hfk, energy_bands
+export build_kpoints, solve_hfk, energy_bands, fermi_surface, density_of_states
 export initialize_green_k, green_k_to_tau
 export local_spin, print_spin, plot_spin
 export spin_structure_factor, magnetic_ordering_wavevector
