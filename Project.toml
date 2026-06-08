@@ -1,9 +1,10 @@
 name = "MeanFieldTheories"
 uuid = "5cc7fde8-cb1c-4e9c-8eab-9f209b9d15ae"
-version = "0.5.0"
+version = "0.6.0"
 authors = ["Yong-Yue Zong"]
 
 [deps]
+Contour = "d38c429a-6771-53c6-b99e-75d170b6e991"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
@@ -18,6 +19,7 @@ Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 MakieExt = "Makie"
 
 [compat]
+Contour = "0.6.3"
 StaticArrays = "1.9.17"
 julia = "~1.10, ~1.11, ~1.12"
 
